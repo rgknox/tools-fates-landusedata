@@ -1,275 +1,536 @@
 #!/usr/bin/env python
 
-import sys
-
-import xarray as xr
-import numpy as np
-import matplotlib.pyplot as plt 
-
-from scipy.optimize import curve_fit
+import argparse
 from datetime import date
 
-def piecewise_exponential_cumulative(ages, k1, k2, m=94):
-    ### this function calculates a piecewise exponential function, whose integral equals one
-    # k1 is the decay rate of first exponential
-    # k2 is decay rate of second exponetial
-    # m is the boundary between k1 and k2
-    # this function represents the steady-state cumulative age distribution for patch ages given harvest rates for 
-    # young and mature forests (k1 and k2) where m is the age that distinguishes the two age types
+import matplotlib.pyplot as plt
+import numpy as np
+import xarray as xr
+from scipy.optimize import curve_fit
+
+
+DEFAULT_NAGES = 300
+DEFAULT_AGE_MATURE = 94
+DEFAULT_LUH2_START_YEAR = 850
+DEFAULT_STEADYSTATE_YEAR = 1850
+DEFAULT_N_AGE_MAX = 150
+DEFAULT_OUTPUT_TIMESTEPS = 500
+DEFAULT_FIT_FALLBACK = 0.05
+
+
+def piecewise_exponential_cumulative(ages, k1, k2, m=DEFAULT_AGE_MATURE):
+    """Return the cumulative piecewise exponential age distribution."""
     n_age_bins = len(ages)
-    
-    # calculate the frequency of youngest age bin
-    a = 1./((1./k1)+np.exp(-k1*m)*((-1/k1)+(1/k2)))
-    
-    # calculate the first piecewise exponential set
-    vals = a * np.exp(-k1*ages)
-    ##print(len(vals[m:]))
-    ##print(len(np.arange(n_age_bins-m)))
-    ##print(len(ages.isel(slice(m-n_age_bins, None))))
-    
-    # calculate the second piecewise exponential set, beginning with the last element of the first set
-    vals[m:] = vals[m]*np.exp(-k2*np.arange(n_age_bins-m))
-    
-    # rescale last age bin to account for all of the truncated ages beyond
-    #vals[-1] = vals[-1]/k2
-
-    vals_cumulative = vals.cumsum()
-    return(vals_cumulative)
-
-# this is the year that LUH2 transient data starts
-year_luh2_start = 850
-
-if len(sys.argv) < 4:
-    print("Three command-line arguments needed: ")
-    print("first is the path to the LUH data file as processed for FATES. ")
-    print("second is the year for which to calculate steady-state.")
-    print("third is a grid name (used only for output filename, e.g. ne30 or 4x5)")
-    sys.exit(4)
-    
-#fin_luh2 = xr.open_dataset('LUH2_states_transitions_management.timeseries_4x5_hist_simyr1650-2015_c240216.nc')
-fin_luh2 = xr.open_dataset(sys.argv[1])
-
-nages = 300
-ntime_total = len(fin_luh2.time)
-
-# calculate the year that you want to calculate a steady-state logging rate for
-year_to_calc_steadystate = sys.argv[2]
-if (year_to_calc_steadystate < year_luh2_start) or (year_to_calc_steadystate > year_luh2_start + ntime_total):
-    print("year_to_calc_steadystate must be within the time span of data file")
-    print(year_to_calc_steadystate)
-    sys.exit(4)
-
-gridname = sys.argv[3]
-
-    
-print(fin_luh2.data_vars)
-if "lon" in fin_luh2.coords or "lsmlon" in fin_luh2.coords:
-    reg_grid = True
-    IM = len(fin_luh2.lon)
-    JM = len(fin_luh2.lat)
-    if "lsmlon" in fin_luh2.dims:
-        latname = "lsmlat"
-        lonname = "lsmlon"
-        lon_coord = fin_luh2.lsmlon
-        lat_coord = fin_luh2.lsmlat
-    else:
-        latname = "lat"
-        lonname = "lon"
-        lon_coord = fin_luh2.lon
-        lat_coord = fin_luh2.lat
-else:
-    lsmlon = False
-    reg_grid = False
-    IM = len(fin_luh2.lndgrid)
-
-ages = xr.DataArray(np.arange(nages), dims=['age'], coords=[np.arange(nages)])
-
-age_mature=94
-
-#print(fin_luh2.dims)
-
-area_prim = fin_luh2.primf + fin_luh2.primn
-
-rate_newsec_creation = fin_luh2.primf_harv + fin_luh2.primn_harv + fin_luh2.primf_to_secdn + fin_luh2.primn_to_secdf  + fin_luh2.urban_to_secdf  + fin_luh2.urban_to_secdn  + fin_luh2.c3ann_to_secdf  + fin_luh2.c3ann_to_secdn  + fin_luh2.c4ann_to_secdf  + fin_luh2.c4ann_to_secdn  + fin_luh2.c3per_to_secdf  + fin_luh2.c3per_to_secdn  + fin_luh2.c4per_to_secdf  + fin_luh2.c4per_to_secdn  + fin_luh2.c3nfx_to_secdf  + fin_luh2.c3nfx_to_secdn  + fin_luh2.pastr_to_secdf  + fin_luh2.pastr_to_secdn  + fin_luh2.range_to_secdf  + fin_luh2.range_to_secdn 
-
-rate_sec_loss_transitions = fin_luh2.secdf_to_urban + fin_luh2.secdf_to_c3ann + fin_luh2.secdf_to_c4ann + fin_luh2.secdf_to_c3per + fin_luh2.secdf_to_c4per + fin_luh2.secdf_to_c3nfx + fin_luh2.secdf_to_pastr + fin_luh2.secdf_to_range + fin_luh2.secdn_to_urban + fin_luh2.secdn_to_c3ann + fin_luh2.secdn_to_c4ann + fin_luh2.secdn_to_c3per + fin_luh2.secdn_to_c4per + fin_luh2.secdn_to_c3nfx + fin_luh2.secdn_to_pastr + fin_luh2.secdn_to_range
-
-secmf_harv = fin_luh2.secmf_harv
-secyf_harv = fin_luh2.secyf_harv
-secnf_harv = fin_luh2.secnf_harv
-
-sectot = fin_luh2.secdf + fin_luh2.secdn
-#print(sectot)
-#sys.exit(4)
-
-if reg_grid:
-    ### initialize the secondary forest age as having all zero age at start of dataset
-    age_dist = xr.DataArray(np.zeros((ntime_total,nages,JM,IM)), dims=['time','age',latname,lonname], coords=[fin_luh2.time, ages, lat_coord, lon_coord])
-    age_dist[0,0,:,:] = sectot.isel(time=0)
-
-    generic_zeros_array = xr.DataArray(np.zeros((ntime_total,JM,IM)), dims=['time',latname,lonname], coords=[fin_luh2.time, lat_coord, lon_coord])
-else:
-    ### initialize the secondary forest age as having all zero age at start of dataset
-    age_dist = xr.DataArray(np.zeros((ntime_total,nages, IM)), dims=['time','age','lndgrid'], coords=[fin_luh2.time, ages, fin_luh2.lndgrid])
-    age_dist[0,0,:] = sectot.isel(time=0)
-    generic_zeros_array = xr.DataArray(np.zeros((ntime_total, IM)), dims=['time','lndgrid'], coords=[fin_luh2.time, fin_luh2.lndgrid])
-
-secy_dist = generic_zeros_array.copy()#xr.DataArray(np.zeros((ntime_total,JM,IM)), dims=['time',latname,lonname], coords=[fin_luh2.time, fin_luh2.lsmlat, fin_luh2.lsmlon])
-secm_dist = generic_zeros_array.copy()#xr.DataArray(np.zeros((ntime_total,JM,IM)), dims=['time',latname,lonname], coords=[fin_luh2.time, fin_luh2.lsmlat, fin_luh2.lsmlon])
-
-k_secloss_dist = generic_zeros_array.copy()#xr.DataArray(np.zeros((ntime_total,JM,IM)), dims=['time',latname,lonname], coords=[fin_luh2.time, fin_luh2.lsmlat, fin_luh2.lsmlon])
-k_secyhar_dist = generic_zeros_array.copy()#xr.DataArray(np.zeros((ntime_total,JM,IM)), dims=['time',latname,lonname], coords=[fin_luh2.time, fin_luh2.lsmlat, fin_luh2.lsmlon])
-k_secthar_dist = generic_zeros_array.copy()#xr.DataArray(np.zeros((ntime_total,JM,IM)), dims=['time',latname,lonname], coords=[fin_luh2.time, fin_luh2.lsmlat, fin_luh2.lsmlon])
-k_secmhar_dist = generic_zeros_array.copy()#xr.DataArray(np.zeros((ntime_total,JM,IM)), dims=['time',latname,lonname], coords=[fin_luh2.time, fin_luh2.lsmlat, fin_luh2.lsmlon])
+    a = 1.0 / ((1.0 / k1) + np.exp(-k1 * m) * ((-1.0 / k1) + (1.0 / k2)))
+    vals = a * np.exp(-k1 * ages)
+    vals[m:] = vals[m] * np.exp(-k2 * np.arange(n_age_bins - m))
+    return vals.cumsum()
 
 
-for t in range(ntime_total-1):
-    if t%50 == 0:
-        print('starting year ',t)
-    secy = age_dist.isel(time=t).isel(age=slice(0,age_mature)).sum(dim='age')
-    secm = age_dist.isel(time=t).isel(age=slice(age_mature,None)).sum(dim='age')
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Calculate LUH2/LUH3 secondary forest age distributions and steady-state harvest rates."
+    )
+    parser.add_argument("luh2_file", help="Input LUH2/LUH3 states/transitions NetCDF file")
+    parser.add_argument(
+        "--year-to-calc-steadystate",
+        type=int,
+        default=DEFAULT_STEADYSTATE_YEAR,
+        help="Calendar year used to estimate steady-state harvest rates",
+    )
+    parser.add_argument(
+        "--nages",
+        type=int,
+        default=DEFAULT_NAGES,
+        help="Number of age bins to track",
+    )
+    parser.add_argument(
+        "--age-mature",
+        type=int,
+        default=DEFAULT_AGE_MATURE,
+        help="Age threshold separating young and mature secondary forest",
+    )
+    parser.add_argument(
+        "--year-luh2-start",
+        type=int,
+        default=DEFAULT_LUH2_START_YEAR,
+        help="First calendar year represented by the transient LUH dataset",
+    )
+    parser.add_argument(
+        "--n-age-max",
+        type=int,
+        default=DEFAULT_N_AGE_MAX,
+        help="Maximum age bin used in the piecewise fit",
+    )
+    parser.add_argument(
+        "--n-ts-out",
+        type=int,
+        default=DEFAULT_OUTPUT_TIMESTEPS,
+        help="Number of identical steady-state timesteps to write to output",
+    )
+    parser.add_argument(
+        "--plot",
+        action="store_true",
+        help="Display the fitted harvest-rate and failure maps",
+    )
+    parser.add_argument(
+        "--output-file",
+        default=None,
+        help="Optional output NetCDF filename. Defaults to the autogenerated LUH3_* name.",
+    )
+    return parser.parse_args()
+
+
+def detect_grid(fin_luh2):
+    if "lon" in fin_luh2.coords or "lsmlon" in fin_luh2.coords:
+        if "lsmlon" in fin_luh2.dims:
+            latname = "lsmlat"
+            lonname = "lsmlon"
+            lat_coord = fin_luh2.lsmlat
+            lon_coord = fin_luh2.lsmlon
+        else:
+            latname = "lat"
+            lonname = "lon"
+            lat_coord = fin_luh2.lat
+            lon_coord = fin_luh2.lon
+        return {
+            "reg_grid": True,
+            "spatial_dims": (latname, lonname),
+            "spatial_coords": {latname: lat_coord, lonname: lon_coord},
+            "spatial_shape": (len(lat_coord), len(lon_coord)),
+        }
+
+    return {
+        "reg_grid": False,
+        "spatial_dims": ("lndgrid",),
+        "spatial_coords": {"lndgrid": fin_luh2.lndgrid},
+        "spatial_shape": (len(fin_luh2.lndgrid),),
+    }
+
+
+def sum_vars(dataset, variable_names):
+    total = dataset[variable_names[0]].copy()
+    for name in variable_names[1:]:
+        total = total + dataset[name]
+    return total
+
+
+def safe_ratio(numerator, denominator):
+    result = np.zeros_like(numerator, dtype=float)
+    np.divide(numerator, denominator, out=result, where=denominator > 0)
+    return result
+
+
+def make_spatial_dataarray(data, spatial_dims, spatial_coords, name=None):
+    return xr.DataArray(data, dims=spatial_dims, coords=spatial_coords, name=name)
+
+
+def make_time_spatial_dataarray(data, time_coord, spatial_dims, spatial_coords, name=None):
+    coords = {"time": time_coord, **spatial_coords}
+    return xr.DataArray(data, dims=("time", *spatial_dims), coords=coords, name=name)
+
+
+def make_age_distribution_dataarray(data, time_coord, ages, spatial_dims, spatial_coords):
+    coords = {"time": time_coord, "age": ages, **spatial_coords}
+    return xr.DataArray(data, dims=("time", "age", *spatial_dims), coords=coords)
+
+
+def prepare_inputs(fin_luh2, nages):
+    grid = detect_grid(fin_luh2)
+    ages = np.arange(nages)
+    age_coord = xr.DataArray(ages, dims=["age"], coords={"age": ages})
+
+    rate_newsec_creation = sum_vars(
+        fin_luh2,
+        [
+            "primf_harv",
+            "primn_harv",
+            "primf_to_secdn",
+            "primn_to_secdf",
+            "urban_to_secdf",
+            "urban_to_secdn",
+            "c3ann_to_secdf",
+            "c3ann_to_secdn",
+            "c4ann_to_secdf",
+            "c4ann_to_secdn",
+            "c3per_to_secdf",
+            "c3per_to_secdn",
+            "c4per_to_secdf",
+            "c4per_to_secdn",
+            "c3nfx_to_secdf",
+            "c3nfx_to_secdn",
+            "pastr_to_secdf",
+            "pastr_to_secdn",
+            "range_to_secdf",
+            "range_to_secdn",
+        ],
+    )
+
+    rate_sec_loss_transitions = sum_vars(
+        fin_luh2,
+        [
+            "secdf_to_urban",
+            "secdf_to_c3ann",
+            "secdf_to_c4ann",
+            "secdf_to_c3per",
+            "secdf_to_c4per",
+            "secdf_to_c3nfx",
+            "secdf_to_pastr",
+            "secdf_to_range",
+            "secdn_to_urban",
+            "secdn_to_c3ann",
+            "secdn_to_c4ann",
+            "secdn_to_c3per",
+            "secdn_to_c4per",
+            "secdn_to_c3nfx",
+            "secdn_to_pastr",
+            "secdn_to_range",
+        ],
+    )
+
+    sectot = fin_luh2.secdf + fin_luh2.secdn
+
+    return {
+        "grid": grid,
+        "ages": age_coord,
+        "ages_np": ages,
+        "ntime_total": len(fin_luh2.time),
+        "rate_newsec_creation": rate_newsec_creation,
+        "rate_sec_loss_transitions": rate_sec_loss_transitions,
+        "secmf_harv": fin_luh2.secmf_harv,
+        "secyf_harv": fin_luh2.secyf_harv,
+        "secnf_harv": fin_luh2.secnf_harv,
+        "sectot": sectot,
+    }
+
+
+def propagate_age_distribution(fin_luh2, prepared, nages, age_mature):
+    grid = prepared["grid"]
+    spatial_dims = grid["spatial_dims"]
+    spatial_coords = grid["spatial_coords"]
+    spatial_shape = grid["spatial_shape"]
+    ntime_total = prepared["ntime_total"]
+
+    sectot_np = prepared["sectot"].to_numpy()
+    rate_newsec_creation_np = prepared["rate_newsec_creation"].to_numpy()
+    rate_sec_loss_transitions_np = prepared["rate_sec_loss_transitions"].to_numpy()
+    secyf_harv_np = prepared["secyf_harv"].to_numpy()
+    secnf_harv_np = prepared["secnf_harv"].to_numpy()
+    secmf_harv_np = prepared["secmf_harv"].to_numpy()
+
+    age_dist_np = np.zeros((ntime_total, nages, *spatial_shape), dtype=float)
+    age_dist_np[0, 0] = sectot_np[0]
+
+    generic_shape = (ntime_total, *spatial_shape)
+    secy_dist_np = np.zeros(generic_shape, dtype=float)
+    secm_dist_np = np.zeros(generic_shape, dtype=float)
+    k_secloss_dist_np = np.zeros(generic_shape, dtype=float)
+    k_secyhar_dist_np = np.zeros(generic_shape, dtype=float)
+    k_secthar_dist_np = np.zeros(generic_shape, dtype=float)
+    k_secmhar_dist_np = np.zeros(generic_shape, dtype=float)
+
+    for t in range(ntime_total - 1):
+        if t % 50 == 0:
+            print("starting year", t)
+
+        current = age_dist_np[t]
+        next_dist = age_dist_np[t + 1]
+        next_dist.fill(0.0)
+        next_dist[0] = rate_newsec_creation_np[t]
+
+        secy = current[:age_mature].sum(axis=0)
+        secm = current[age_mature:].sum(axis=0)
+
+        k_secloss = np.minimum(1.0, safe_ratio(rate_sec_loss_transitions_np[t], sectot_np[t]))
+        k_secyhar = np.minimum(1.0, safe_ratio(secyf_harv_np[t], secy))
+        k_secthar = np.minimum(1.0, safe_ratio(secnf_harv_np[t], sectot_np[t]))
+        k_secmhar = np.minimum(1.0, safe_ratio(secmf_harv_np[t], secm))
+
+        young_return = np.minimum(1.0, k_secyhar + k_secthar)
+        young_survive = 1.0 - np.minimum(1.0, k_secloss + k_secyhar + k_secthar)
+        mature_return = np.minimum(1.0, k_secmhar + k_secthar)
+        mature_survive = 1.0 - np.minimum(1.0, k_secloss + k_secmhar + k_secthar)
+
+        young_source = current[:age_mature]
+        next_dist[1 : age_mature + 1] = young_source * young_survive
+        next_dist[0] += young_source.sum(axis=0) * young_return
+
+        mature_source = current[age_mature : nages - 2]
+        next_dist[age_mature + 1 : nages - 1] = mature_source * mature_survive
+        next_dist[0] += mature_source.sum(axis=0) * mature_return
+
+        oldest_pool = current[nages - 1] + current[nages - 2]
+        next_dist[nages - 1] = oldest_pool * mature_survive
+        next_dist[0] += oldest_pool * mature_return
+
+        secy_dist_np[t] = secy
+        secm_dist_np[t] = secm
+        k_secloss_dist_np[t] = k_secloss
+        k_secyhar_dist_np[t] = k_secyhar
+        k_secthar_dist_np[t] = k_secthar
+        k_secmhar_dist_np[t] = k_secmhar
+
+    age_dist = make_age_distribution_dataarray(
+        age_dist_np,
+        fin_luh2.time,
+        prepared["ages_np"],
+        spatial_dims,
+        spatial_coords,
+    )
+
+    return {
+        "age_dist": age_dist,
+        "secy_dist": make_time_spatial_dataarray(
+            secy_dist_np, fin_luh2.time, spatial_dims, spatial_coords, name="secy_dist"
+        ),
+        "secm_dist": make_time_spatial_dataarray(
+            secm_dist_np, fin_luh2.time, spatial_dims, spatial_coords, name="secm_dist"
+        ),
+        "k_secloss_dist": make_time_spatial_dataarray(
+            k_secloss_dist_np,
+            fin_luh2.time,
+            spatial_dims,
+            spatial_coords,
+            name="k_secloss_dist",
+        ),
+        "k_secyhar_dist": make_time_spatial_dataarray(
+            k_secyhar_dist_np,
+            fin_luh2.time,
+            spatial_dims,
+            spatial_coords,
+            name="k_secyhar_dist",
+        ),
+        "k_secthar_dist": make_time_spatial_dataarray(
+            k_secthar_dist_np,
+            fin_luh2.time,
+            spatial_dims,
+            spatial_coords,
+            name="k_secthar_dist",
+        ),
+        "k_secmhar_dist": make_time_spatial_dataarray(
+            k_secmhar_dist_np,
+            fin_luh2.time,
+            spatial_dims,
+            spatial_coords,
+            name="k_secmhar_dist",
+        ),
+    }
+
+
+def derive_age_metrics(age_dist, ages, sectot):
+    age_dist_cum = age_dist.cumsum(dim="age")
+    mean_age = (age_dist * ages).sum(dim="age") / age_dist.sum(dim="age")
+    age_dist_cum_norm = age_dist_cum / sectot
+    median_secondary_age = np.abs(age_dist_cum_norm.fillna(0.0) - 0.5).argmin(
+        dim="age", skipna=True
+    )
+    median_secondary_age = median_secondary_age * sectot / sectot
+    return {
+        "age_dist_cum": age_dist_cum,
+        "mean_age": mean_age,
+        "age_dist_cum_norm": age_dist_cum_norm,
+        "median_secondary_age": median_secondary_age,
+    }
+
+
+def fit_piecewise_harvest_rates(
+    age_dist_cum_norm,
+    sectot,
+    grid,
+    ages,
+    year_index,
+    n_age_max,
+    fit_fallback=DEFAULT_FIT_FALLBACK,
+):
+    spatial_dims = grid["spatial_dims"]
+    spatial_coords = grid["spatial_coords"]
+    reg_grid = grid["reg_grid"]
+
+    generic_nan_array = make_spatial_dataarray(
+        np.full(grid["spatial_shape"], np.nan), spatial_dims, spatial_coords
+    )
+    sec_young_harvestrate_rel = generic_nan_array.copy()
+    sec_mature_harvestrate_rel = generic_nan_array.copy()
+    fails = generic_nan_array.copy()
+
+    x = ages.isel(age=slice(0, n_age_max)).data
+    y_values = age_dist_cum_norm.isel(time=year_index, age=slice(0, n_age_max)).transpose(
+        *spatial_dims, "age"
+    ).to_numpy()
+    active = sectot.isel(time=year_index).transpose(*spatial_dims).to_numpy() > 0.0
+
     if reg_grid:
-        age_dist[t+1,0,:,:] = rate_newsec_creation.isel(time=t)
-    else:
-        age_dist[t+1,0,:] = rate_newsec_creation.isel(time=t)
-    k_secloss = np.minimum(1.,np.nan_to_num(rate_sec_loss_transitions.isel(time=t)/sectot.isel(time=t)))
-    k_secyhar = np.minimum(1.,np.nan_to_num(secyf_harv.isel(time=t)/secy))
-    k_secthar = np.minimum(1.,np.nan_to_num(secnf_harv.isel(time=t)/sectot.isel(time=t)))
-    k_secmhar = np.minimum(1.,np.nan_to_num(secmf_harv.isel(time=t)/secm))
-
-    for age in range(age_mature):
-        age_dist[t+1,age+1] = age_dist[t,age] * (1. - np.minimum(1.,(k_secloss + k_secyhar + k_secthar)))
-        age_dist[t+1,0] = age_dist[t+1,0] + age_dist[t,age] * np.minimum(1.,(k_secyhar + k_secthar))
-    for age in range(age_mature,nages-2):
-        age_dist[t+1,age+1] = age_dist[t,age] * (1.- np.minimum(1.,(k_secloss + k_secmhar + k_secthar)))
-        age_dist[t+1,0] = age_dist[t+1,0] + age_dist[t,age] * np.minimum(1.,(k_secmhar + k_secthar))
-    age_dist[t+1,nages-1] = (age_dist[t,nages-1] + age_dist[t,nages-2]) * (1.- np.minimum(1.,(k_secloss + k_secmhar + k_secthar)))
-    age_dist[t+1,0] = age_dist[t+1,0] + (age_dist[t,nages-1] + age_dist[t,nages-2]) * np.minimum(1.,(k_secmhar + k_secthar))
-
-    if reg_grid:
-        secy_dist[t,:,:] = secy
-        secm_dist[t,:,:] = secm
-        k_secloss_dist[t,:,:] = k_secloss
-        k_secyhar_dist[t,:,:] = k_secyhar
-        k_secthar_dist[t,:,:] = k_secthar
-        k_secmhar_dist[t,:,:] = k_secmhar
-    else:
-        secy_dist[t,:] = secy
-        secm_dist[t,:] = secm
-        k_secloss_dist[t,:] = k_secloss
-        k_secyhar_dist[t,:] = k_secyhar
-        k_secthar_dist[t,:] = k_secthar
-        k_secmhar_dist[t,:] = k_secmhar        
-
-
-age_dist_cum = age_dist.cumsum(dim='age')
-
-
-mean_age = (age_dist * ages).sum(dim='age') / age_dist.sum(dim='age')
-
-
-age_dist_cum_norm = age_dist_cum / sectot
-
-
-median_secondary_age = np.abs(age_dist_cum_norm.fillna(0.) - 0.5).argmin(dim='age', skipna=True)
-median_secondary_age = (median_secondary_age * sectot / sectot)
-
-
-if reg_grid:
-    generic_nan_array = xr.DataArray(np.nan * np.ones([JM,IM]), dims=[latname,lonname], coords=[fin_luh2.lat, fin_luh2.lon])
-else:
-    generic_nan_array = xr.DataArray(np.nan * np.ones([IM]), dims=['lndgrid'], coords=[fin_luh2.lndgrid])
-
-sec_young_harvestrate_rel = generic_nan_array.copy()#xr.DataArray(np.nan * np.ones([JM,IM]), dims=[latname,lonname], coords=[fin_luh2.lat, fin_luh2.lon])
-sec_mature_harvestrate_rel = generic_nan_array.copy()#xr.DataArray(np.nan * np.ones([JM,IM]), dims=[latname,lonname], coords=[fin_luh2.lat, fin_luh2.lon])
-
-
-time = year_to_calc_steadystate - year_luh2_start
-n_age_max = 150
-
-x = ages.isel(age=slice(0,n_age_max)).data
-fails = generic_nan_array.copy()#xr.DataArray(np.nan * np.ones([JM,IM]), dims=[latname,lonname], coords=[fin_luh2.lat, fin_luh2.lon])
-if reg_grid:
-    for i in range(IM):
-        for j in range(JM):
-            if latname == "lsmlat":
-                if sectot.sel(lsmlat=j,lsmlon=i,time=time) > 0.:
-                    y = age_dist_cum_norm.isel(lsmlat=j,lsmlon=i,time=time,age=slice(0,n_age_max)).data
-                else:
+        for j in range(grid["spatial_shape"][0]):
+            for i in range(grid["spatial_shape"][1]):
+                if not active[j, i]:
                     continue
-            else:
-                if sectot.isel(lat=j,lon=i,time=time) > 0.:
-                    y = age_dist_cum_norm.isel(lat=j,lon=i,time=time,age=slice(0,n_age_max)).data
-                else:
-                    continue               
+                y = y_values[j, i, :]
+                try:
+                    params = curve_fit(
+                        piecewise_exponential_cumulative,
+                        x,
+                        y,
+                        p0=[0.01, 0.01],
+                        bounds=[0, 1],
+                    )
+                    sec_young_harvestrate_rel[j, i] = params[0][0]
+                    sec_mature_harvestrate_rel[j, i] = params[0][1]
+                except (RuntimeError, ValueError, FloatingPointError):
+                    fails[j, i] = 1.0
+                    sec_young_harvestrate_rel[j, i] = fit_fallback
+                    sec_mature_harvestrate_rel[j, i] = fit_fallback
+    else:
+        for i in range(grid["spatial_shape"][0]):
+            if not active[i]:
+                continue
+            y = y_values[i, :]
             try:
-                params = curve_fit(piecewise_exponential_cumulative, x, y, p0=[0.01,0.01], bounds=[0,1])
-                #print(params)
-                sec_young_harvestrate_rel[j,i] = params[0][0]
-                sec_mature_harvestrate_rel[j,i] = params[0][1]
-            except:
-                fails[j,i] = 1.
-                sec_young_harvestrate_rel[j,i] = 0.05  ### set to some nominal value
-                sec_mature_harvestrate_rel[j,i] = 0.05  ### set to some nominal value
-else:
-    for i in range(IM):
-        if sectot.sel(lndgrid=i,time=time) > 0.:
-            y = age_dist_cum_norm.isel(lndgrid=i,time=time,age=slice(0,n_age_max)).data
-            try:
-                params = curve_fit(piecewise_exponential_cumulative, x, y, p0=[0.01,0.01], bounds=[0,1])
-                #print(params)
+                params = curve_fit(
+                    piecewise_exponential_cumulative,
+                    x,
+                    y,
+                    p0=[0.01, 0.01],
+                    bounds=[0, 1],
+                )
                 sec_young_harvestrate_rel[i] = params[0][0]
                 sec_mature_harvestrate_rel[i] = params[0][1]
-            except:
-                fails[i] = 1.
-                sec_young_harvestrate_rel[i] = 0.05  ### set to some nominal value
-                sec_mature_harvestrate_rel[i] = 0.05  ### set to some nominal value    
-        
+            except (RuntimeError, ValueError, FloatingPointError):
+                fails[i] = 1.0
+                sec_young_harvestrate_rel[i] = fit_fallback
+                sec_mature_harvestrate_rel[i] = fit_fallback
+
+    return {
+        "sec_young_harvestrate_rel": sec_young_harvestrate_rel.fillna(0.0),
+        "sec_mature_harvestrate_rel": sec_mature_harvestrate_rel.fillna(0.0),
+        "fails": fails,
+    }
 
 
-sec_young_harvestrate_rel.plot()
+def build_steady_state_output(
+    fin_luh2,
+    year_index,
+    n_ts_out,
+    sec_young_harvestrate_rel,
+    sec_mature_harvestrate_rel,
+):
+    fout = fin_luh2.sel(time=[year_index] * n_ts_out).copy()
+
+    varlist = list(fout.variables)
+    matchers = ["_to_", "_harv", "_bioh"]
+    matching_vars = [name for name in varlist if any(token in name for token in matchers)]
+    for var in matching_vars:
+        fout[var] = fout[var] * 0.0
+
+    secondary_total = fout.secdf.isel(time=0) + fout.secdn.isel(time=0)
+    young_harvest = sec_young_harvestrate_rel * secondary_total
+    mature_harvest = sec_mature_harvestrate_rel * secondary_total
+
+    fout["secyf_harv"][:] = xr.DataArray(
+        np.broadcast_to(young_harvest.data, fout.secyf_harv.shape),
+        dims=fout.secyf_harv.dims,
+        coords=fout.secyf_harv.coords,
+    )
+    fout["secmf_harv"][:] = xr.DataArray(
+        np.broadcast_to(mature_harvest.data, fout.secmf_harv.shape),
+        dims=fout.secmf_harv.dims,
+        coords=fout.secmf_harv.coords,
+    )
+
+    fout["time"] = np.arange(n_ts_out)
+    fout["YEAR"][:] = np.arange(n_ts_out)
+    return fout
 
 
-sec_mature_harvestrate_rel.plot()
+def plot_fit_outputs(sec_young_harvestrate_rel, sec_mature_harvestrate_rel, fails):
+    sec_young_harvestrate_rel.plot()
+    plt.figure()
+    sec_mature_harvestrate_rel.plot()
+    plt.figure()
+    fails.plot()
+    plt.show()
 
 
-fails.plot()
+def run_workflow(
+    fin_luh2,
+    nages,
+    age_mature,
+    year_luh2_start,
+    year_to_calc_steadystate,
+    n_age_max,
+    n_ts_out,
+):
+    prepared = prepare_inputs(fin_luh2, nages)
+    print(fin_luh2.data_vars)
+    print(fin_luh2.dims)
+    print(prepared["sectot"])
+
+    propagation = propagate_age_distribution(fin_luh2, prepared, nages, age_mature)
+    metrics = derive_age_metrics(
+        propagation["age_dist"], prepared["ages"], prepared["sectot"]
+    )
+
+    year_index = year_to_calc_steadystate - year_luh2_start
+    fit_results = fit_piecewise_harvest_rates(
+        metrics["age_dist_cum_norm"],
+        prepared["sectot"],
+        prepared["grid"],
+        prepared["ages"],
+        year_index,
+        n_age_max,
+    )
+    fout = build_steady_state_output(
+        fin_luh2,
+        year_index,
+        n_ts_out,
+        fit_results["sec_young_harvestrate_rel"],
+        fit_results["sec_mature_harvestrate_rel"],
+    )
+
+    return {
+        **prepared,
+        **propagation,
+        **metrics,
+        **fit_results,
+        "fout": fout,
+        "year_index": year_index,
+    }
 
 
-# replace nans with zeros in harvest rates
-sec_young_harvestrate_rel = sec_young_harvestrate_rel.fillna(0.)
-sec_mature_harvestrate_rel = sec_mature_harvestrate_rel.fillna(0.)
+def output_filename(year_to_calc_steadystate):
+    return (
+        f"LUH3_{year_to_calc_steadystate}_steadystate_ne16np4_c"
+        f"{date.today()}.nc"
+    )
 
 
-n_ts_out = 500
-fout = fin_luh2.sel(time=[time]*n_ts_out)
+def main():
+    args = parse_args()
+    fin_luh2 = xr.open_dataset(args.luh2_file)
+    results = run_workflow(
+        fin_luh2=fin_luh2,
+        nages=args.nages,
+        age_mature=args.age_mature,
+        year_luh2_start=args.year_luh2_start,
+        year_to_calc_steadystate=args.year_to_calc_steadystate,
+        n_age_max=args.n_age_max,
+        n_ts_out=args.n_ts_out,
+    )
+
+    if args.plot:
+        plot_fit_outputs(
+            results["sec_young_harvestrate_rel"],
+            results["sec_mature_harvestrate_rel"],
+            results["fails"],
+        )
+
+    encoding = {var: {"_FillValue": -999.0} for var in results["fout"].data_vars}
+    output_file = args.output_file or output_filename(args.year_to_calc_steadystate)
+    results["fout"].to_netcdf(
+        output_file,
+        encoding=encoding,
+    )
 
 
-# first zero all transitions
-varlist =  list(fout.variables)
-matchers = ['_to_','_harv','_bioh']
-matching_vars = [s for s in varlist if any(xs in s for xs in matchers)]
-#matching_vars
-
-# Loop over variables governing transition rates and zero them
-for var in matching_vars:
-    # Access the variable data
-    fout[var] = fout[var] * 0.
-
-
-# now rewrite the secondary harvest rates based on the fits above
-if reg_grid:
-    for i_ts in range(n_ts_out):
-        fout.secyf_harv[i_ts,:,:] = sec_young_harvestrate_rel * (fout.secdf.isel(time=0) + fout.secdn.isel(time=0)).data
-        fout.secmf_harv[i_ts,:,:] = sec_mature_harvestrate_rel * (fout.secdf.isel(time=0) + fout.secdn.isel(time=0)).data
-else:
-    for i_ts in range(n_ts_out):
-        fout.secyf_harv[i_ts,:] = sec_young_harvestrate_rel * (fout.secdf.isel(time=0) + fout.secdn.isel(time=0)).data
-        fout.secmf_harv[i_ts,:] = sec_mature_harvestrate_rel * (fout.secdf.isel(time=0) + fout.secdn.isel(time=0)).data
-
-fout['time'] = np.arange(n_ts_out)
-fout['YEAR'][:] = np.arange(n_ts_out)
-
-fout.to_netcdf('LUH2_states_transitions_management.timeseries_'+gridname+'_hist_steadystate_'+str(year_to_calc_steadystate)+'_'+str(date.today())+'.nc')
-
+if __name__ == "__main__":
+    main()
 
