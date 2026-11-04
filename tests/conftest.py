@@ -1,5 +1,6 @@
 import os
 import pytest
+import numpy as np
 import xarray as xr
 
 @pytest.fixture(scope="module")
@@ -9,6 +10,19 @@ def target_file_location():
 @pytest.fixture(scope="module")
 def static_file_location():
     return 'tests/resources/staticData_quarterdeg.nc'
+
+@pytest.fixture(scope="module")
+def invalid_dataset():
+    # write a dummy data set to trigger negative cases
+    data = np.random.randn(2, 2, 3)
+    dims = ["dim1","dim2","dim3"]
+    dataset = xr.Dataset(data_vars=dict(dummy=(dims, data)))
+    return dataset
+
+@pytest.fixture(scope="module")
+def invalid_file_type(invalid_dataset):
+    invalid_dataset.to_netcdf('tests/resources/dummy.nc')
+    return 'tests/resources/dummy.nc'
 
 @pytest.fixture(scope="module")
 def landusepft_file_location():

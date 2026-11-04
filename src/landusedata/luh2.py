@@ -1,23 +1,29 @@
 import argparse, os, sys
 
 import xarray as xr
+from datetime import datetime, UTC
 
 from landusedata.luh2mod import ImportLUH2TimeSeries, CorrectStateSum
-from landusedata.regrid import RegridConservative, RegridLoop
-from landusedata.utils import ImportLUH2StaticFile, ImportRegridTarget
+from landusedata.regrid import RegridConservative
+from landusedata.utils import (
+    ImportLUH2StaticFile,
+    ImportRegridTarget,
+    COMMON_CAP_THRESHOLD,
+)
 from landusedata.utils import SetMaskRegridTarget, DefineStaticMask
 
 
 # Add version checking here in case environment.yml not used
 def main(args):
-
     # Import and prep the LUH2 datasets and regrid target
-    filelist = [args.luh2_states_file,
-                args.luh2_transitions_file,
-                args.luh2_management_file]
+    filelist = [
+        args.luh2_states_file,
+        args.luh2_transitions_file,
+        args.luh2_management_file,
+    ]
     ds_luh2 = []
     for filename in filelist:
-        ds_luh2.append(ImportLUH2TimeSeries(filename,start=args.begin,stop=args.end))
+        ds_luh2.append(ImportLUH2TimeSeries(filename, start=args.begin, stop=args.end))
 
     # Import the LUH2 static data to use for masking
     ds_luh2_static = ImportLUH2StaticFile(args.luh2_static_file)
@@ -29,9 +35,9 @@ def main(args):
     mask_icwtr = DefineStaticMask(ds_luh2_static)
 
     # Mask all LUH2 input data using the ice/water fraction for the LUH2 static data
-    ds_luh2_static['mask'] = mask_icwtr
+    ds_luh2_static["mask"] = mask_icwtr
     for dataset in ds_luh2:
-        dataset['mask'] = mask_icwtr
+        dataset["mask"] = mask_icwtr
 
     # Import and prep the regrid target surface dataset
     ds_regrid_target = ImportRegridTarget(args.regrid_target_file)
@@ -46,11 +52,15 @@ def main(args):
     # At the beginning of the loop, there is no regrid weights file to reuse
     regrid_reuse = False
     for dataset in ds_luh2:
-
         # Regrid the luh2 data to the target grid
         # TO DO: provide a check for the save argument based on the input arguments
-        regrid_luh2,regridder_luh2 = RegridConservative(dataset, ds_regrid_target,
-                                                        args.regridder_weights, regrid_reuse)
+        regrid_luh2, regridder_luh2 = RegridConservative(
+            dataset,
+            ds_regrid_target,
+            args.regridder_weights,
+            regrid_reuse,
+            intermediate_regridding_file=args.intermediate_regridding_file,
+        )
 
         # Regrid the inverted ice/water fraction data to the target grid
         regrid_land_fraction = regridder_luh2(ds_luh2_static)
@@ -68,20 +78,27 @@ def main(args):
         # This is a requirement of the HLM dyn_subgrid module and should be the actual year.
         # Note that the time variable from the LUH2 data is 'years since ...' so we need to
         # add the input data year
-        if (not "YEAR" in list(regrid_luh2.variables)):
+        if not "YEAR" in list(regrid_luh2.variables):
             regrid_luh2["YEAR"] = regrid_luh2.time + dataset.timesince
-            regrid_luh2["LONGXY"] = ds_regrid_target["LONGXY"] # TO DO: double check if this is strictly necessary
-            regrid_luh2["LATIXY"] = ds_regrid_target["LATIXY"] # TO DO: double check if this is strictly necessary
+            regrid_luh2["LONGXY"] = ds_regrid_target[
+                "LONGXY"
+            ]  # TO DO: double check if this is strictly necessary
+            regrid_luh2["LATIXY"] = ds_regrid_target[
+                "LATIXY"
+            ]  # TO DO: double check if this is strictly necessary
 
         # Rename the dimensions for the output.  This needs to happen after the "LONGXY/LATIXY" assignment
-        if (not 'lsmlat' in list(regrid_luh2.dims)):
-            regrid_luh2 = regrid_luh2.rename_dims({'lat':'lsmlat','lon':'lsmlon'})
+        if (not "lsmlat" in list(regrid_luh2.dims)) and "lsmlat" in list(
+            ds_regrid_target.dims
+        ):
+            regrid_luh2 = regrid_luh2.rename_dims({"lat": "lsmlat", "lon": "lsmlon"})
 
         # Reapply the coordinate attributes.  This is a workaround for an xarray bug (#8047)
         # Currently only need time
         regrid_luh2.time.attrs = dataset.time.attrs
-        regrid_luh2.lat.attrs = dataset.lat.attrs
-        regrid_luh2.lon.attrs = dataset.lon.attrs
+        if "lsmlat" in list(ds_regrid_target.dims):
+            regrid_luh2.lat.attrs = dataset.lat.attrs
+            regrid_luh2.lon.attrs = dataset.lon.attrs
 
         # Merge previous regrided luh2 file with merge input target
         # TO DO: check that the grid resolution matches
@@ -92,14 +109,32 @@ def main(args):
 
         # If regrid_reuse is False, change it to True for the next loop so that
         # the previously generated weights file is reused
-        if (not(regrid_reuse)):
+        if not (regrid_reuse):
             regrid_reuse = True
+
+    # Set the output encoding for missing values to be -999 instead of the default NaN
+    encoding = {var: {"_FillValue": -999.0} for var in ds_output.data_vars}
 
     # Write the files
     # TO DO: add check to handle if the user enters the full path
-    output_file = os.path.join(os.getcwd(),args.output)
+    if args.output == "LUH2_timeseries.nc":
+        output_file = os.path.join(
+            os.getcwd(),
+            f"LUH2_timeseries_to_{args.regrid_target_file.split('/')[-1].split('.')[0]}_{datetime.now(UTC).strftime('%y%m%d')}.nc",
+        )
+    else:
+        output_file = os.path.join(os.getcwd(), args.output)
+
+    print(
+        "Before writing output, apply capping threshold to avoid very small values from regridding"
+    )
+    ds_output = ds_output.where(ds_output > COMMON_CAP_THRESHOLD, other=0.0)
+
+    # Set the output encoding for missing values to be -999 instead of the default NaN
+    encoding = {var: {"_FillValue": -999.0} for var in ds_output.data_vars}
+
     print("generating output: {}".format(output_file))
-    ds_output.to_netcdf(output_file)
+    ds_output.to_netcdf(output_file, encoding=encoding)
 
 if __name__ == "__main__":
     main()

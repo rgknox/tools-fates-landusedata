@@ -14,19 +14,28 @@ resolution that the user designates for either output option.  The output data i
 
 ## Input data sources
 
-The tool requires input data from two primary sources: the [Land Use Harmonization](https://luh.umd.edu/), or LUH2, historical data sets and the [THESIS Tools Datasetes](https://doi.org/10.5065/29s7-7b41).  A static mapping file from the LUH2 data is required for both output options.  The historical LUH2 transient, state, and management data is used as input for the FATES land use timeseries data output option, whereas the THEMIS tools forest, pasture, "other" and current surface data sets are necessary for the land use x pft static map output option.  These data sets can be downloaded directly from their respective sources and are not provided as part of this package.
+The tool requires input data from two primary sources: the [Land Use Harmonization](https://luh.umd.edu/), or LUH2, historical data sets and the [THESIS Tools Datasets](https://doi.org/10.5065/29s7-7b41).  A static mapping file from the LUH2 data is required for both output options.  The historical LUH2 transient, state, and management data is used as input for the FATES land use timeseries data output option, whereas the THEMIS tools forest, pasture, "other" and current surface data sets are necessary for the land use x pft static map output option.  These data sets can be downloaded directly from their respective sources and are not provided as part of this package.
 
-### LUH2 Historical data sets
+### LUH Historical data sets
 
-Generating the land use timeseries dataset requires as input the historical datasets from the [LUH2 v2h Release](https://luh.umd.edu/data.shtml):
+Generating the land use timeseries dataset requires as input the
+historical datasets from either the [LUH2 v2h
+Release](https://luh.umd.edu/data.shtml) or the [LUH3 Release](https://aims2.llnl.gov/search/input4mips/):
 
-_Historical Files_
+_LUH2 Historical Files_
 - [states](https://luh.umd.edu/LUH2/LUH2_v2h/states.nc)
 - [transitions](https://luh.umd.edu/LUH2/LUH2_v2h/transitions.nc)
 - [management](https://luh.umd.edu/LUH2/LUH2_v2h/management.nc)
 
-_Supporting Files_
-- [static data](https://luh.umd.edu/LUH2/LUH2_v2h/staticData_quarterdeg.nc)
+_LUH2 Supporting Files_
+- [static
+  data](https://luh.umd.edu/LUH2/LUH2_v2h/staticData_quarterdeg.nc)
+  
+  _LUH3 Files_
+- static data: multiple-static_input4MIPs_landState_CMIP_UofMD-landState-3-1_gn.nc
+- states: multiple-states_input4MIPs_landState_CMIP_UofMD-landState-3-1_gn_0850-2024.nc
+- transitions: multiple-transitions_input4MIPs_landState_CMIP_UofMD-landState-3-1_gn_0850-2023.nc
+- management: multiple-management_input4MIPs_landState_CMIP_UofMD-landState-3-1_gn_0850-2024.nc
 
 The documenatation for the historical datasets is [available for download as a PDF](https://luh.umd.edu/LUH2/LUH2_v2h_README.pdf).
 
@@ -39,7 +48,18 @@ Generating the land use x pft static mapping dataset requires as input the CLM 5
 - [Current other](https://gdex.ucar.edu/dataset/188b_oleson/file/CLM5_current_luhother_deg025.nc)
 - [Current 1/4 deg surface](https://gdex.ucar.edu/dataset/188b_oleson/file/CLM5_current_surf_deg025.nc)
 
-The LUH2 static data file noted in the LUH2 historical dataset section above is also required as an input.
+The LUH static data file noted in the LUH historical dataset section
+above is also required as an input.
+
+Note that either LUH3 or LUH2 data can be used in exactly the same way.
+
+### Regridding weight file for spectral element regridding
+
+In order to regrid to spectral element resolution an ESMF generated weight-file is needed. This can be generated using ESMF (https://earthsystemmodeling.org/docs/release/ESMF_8_4_2/ESMF_refdoc/node3.html) :
+``` sh
+ESMF_RegridWeightGen --source name_of_file_with_source_resolution --destination name_of_file_with_spectral_element_resolution --weigth name_of_weight_file --method conserve
+```
+As the LUH2 data are very highly resolved, the ESMF might not be able to regrid directly to the spectral element resolution from the LUH2 datasets, hence the source resolution here, might need to be on some regular grid that is fairly close to the spectral element grid resolution (this code version was tested using an 0.9x1.25 degree resolution into ne30 spectral element grid).
 
 ## Installation
 
@@ -107,6 +127,9 @@ options:
                         beginning of date range of interest
   -e END, --end END     ending of date range to slice
   -o OUTPUT, --output OUTPUT
+  -i INTERMEDIATE_REGRIDDING_FILE, --intermediate_regridding_file INTERMEDIATE_REGRIDDING_FILE
+                        filename of intermediate regridding weightfile for two-step regridding
+                        to spectral element resolution
                         output filename
 ```
 
@@ -128,6 +151,9 @@ options:
   -h, --help            show this help message and exit
   -o OUTPUT, --output OUTPUT
                         output filename
+  -i INTERMEDIATE_REGRIDDING_FILE, --intermediate_regridding_file INTERMEDIATE_REGRIDDING_FILE
+                        filename of intermediate regridding weightfile for two-step regridding
+                        to spectral element resolution
 
 ```
 

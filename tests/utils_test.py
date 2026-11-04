@@ -18,15 +18,15 @@ def test_RegridTargetPrep_coords(target_dataset):
                  if latlon in coord]
     assert latlon_list == test_list
 
-# def test_negImportRegridTarget(landusepft_file_location):
-#     with pytest.raises(TypeError) as exp:
-#         utils.ImportRegridTarget(landusepft_file_location)
-#     assert str(exp.value) == "incorrect file, must be surface dataset"
+def test_negImportRegridTarget(invalid_file_type):
+    with pytest.raises(TypeError) as exp:
+        utils.ImportRegridTarget(invalid_file_type)
+    assert str(exp.value) == "incorrect file, must be surface dataset"
 
-# def test_negSetMaskRegridTarget(landusepft_dataset):
-#     with pytest.raises(AttributeError) as exp:
-#         maskoutput = utils.SetMaskRegridTarget(landusepft_dataset)
-#     assert str(exp.value) == "incorrect dataset, must be CLM surface dataset"
+def test_negSetMaskRegridTarget(invalid_dataset):
+    with pytest.raises(AttributeError) as exp:
+        maskoutput = utils.SetMaskRegridTarget(invalid_dataset)
+    assert str(exp.value) == "incorrect dataset, must be CLM surface dataset"
 
 # # Postive test case for importing LUH2 static data file
 # def test_posImportLUH2StaticFile(static_file_location):

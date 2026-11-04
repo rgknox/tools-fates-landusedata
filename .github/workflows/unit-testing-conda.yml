@@ -43,7 +43,7 @@ jobs:
 
       - name: Convert pyproject to environment.yml
         run: |
-          pyproject2conda yaml -e test --python-include python=${{ matrix.python-version }} > environment.yml
+          pyproject2conda yaml -e test --python-include python='${{ matrix.python-version }}' > environment.yml
 
       - name: Install dependencies from environment.yml
         run: |

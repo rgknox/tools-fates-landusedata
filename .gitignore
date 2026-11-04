@@ -5,7 +5,7 @@ __pycache__/
 
 # netcdf files - whitelist specific files
 *.nc
-!tests/resources/surfdata_4x5.nc
+!tests/resources/*.nc
 
 # C extensions
 *.so

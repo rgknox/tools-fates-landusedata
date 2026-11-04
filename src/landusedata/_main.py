@@ -48,6 +48,9 @@ def main(argv=None):
     luh2_parser.add_argument("-o","--output",
                              default = 'LUH2_timeseries.nc',
                              help = "output filename")
+    luh2_parser.add_argument("-i", "--intermediate_regridding_file",
+                             default = None,
+                             help = "filename of file on intermediate regridding format")
 
     # Landuse x pft subparser arguments
     lupft_parser.add_argument('regrid_target_file',
@@ -65,6 +68,13 @@ def main(argv=None):
     lupft_parser.add_argument("-o","--output",
                               default = 'fates_landuse_pft_map.nc',
                               help = "output filename")
+    lupft_parser.add_argument("-w", "--regridder_weights",
+                             default = 'regridder.nc',
+                             help = "filename of regridder weights to save")
+    lupft_parser.add_argument("-i", "--intermediate_regridding_file",
+                             default = None,
+                             help = "filename of file on intermediate regridding format")
+
 
     # Parse the arguments
     args = parser.parse_args(argv)
