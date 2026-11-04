@@ -120,9 +120,6 @@ def main(args):
 
     # ds_regrid = ds_regrid.rename({'lat':'lsmlat','lon':'lsmlon'})
 
-    # Set the output encoding for missing values to be -999 instead of the default NaN
-    encoding = {var: {"_FillValue": -999.0} for var in ds_output.data_vars}
-
     # Output dataset to netcdf file
     if args.output == "fates_landuse_pft_map.nc":
         fname = f"fates_landuse_pft_map_to_{args.regrid_target_file.split('/')[-1].split('.')[0]}_{datetime.now(UTC).strftime('%y%m%d')}.nc"
@@ -133,13 +130,13 @@ def main(args):
     print(
         "Before writing output, apply capping threshold to avoid very small values from regridding"
     )
-    ds_output = ds_output.where(ds_output > COMMON_CAP_THRESHOLD, ds_output, 0.0)
+    ds_output = ds_output.where(ds_output > COMMON_CAP_THRESHOLD, other=0.0)
 
     # Set the output encoding for missing values to be -999 instead of the default NaN
     encoding = {var: {"_FillValue": -999.0} for var in ds_output.data_vars}
 
     print(f"Writing fates landuse x pft dataset to file {output_file}")
-    ds_output.to_netcdf(output_file)
+    ds_output.to_netcdf(output_file,encoding=encoding)
 
 
 if __name__ == "__main__":
