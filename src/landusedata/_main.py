@@ -79,7 +79,7 @@ def main(argv=None):
     lupft_parser.add_argument('clm_surface_file',
                               help = "CLM5_current_surf_deg025.nc")
     lupft_parser.add_argument("-o","--output",
-                              default = 'fates_landuse_pft_map.nc',
+                              default = None,
                               help = "output filename")
     lupft_parser.add_argument("-w", "--regridder_weights",
                              default = 'regridder.nc',
@@ -93,12 +93,13 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     # Only overwrite existing output if --overwrite specified
-    args.output = os.path.realpath(args.output)
-    if os.path.exists(args.output) and not args.overwrite:
-        raise FileExistsError(f"Output file exists; specify --overwrite to overwrite: {args.output}")
+    if args.output is not None:
+        args.output = os.path.realpath(args.output)
+        if os.path.exists(args.output) and not args.overwrite:
+            raise FileExistsError(f"Output file exists; specify --overwrite to overwrite: {args.output}")
 
     # Create output directory, if needed. Otherwise, check write access.
-    output_directory = os.path.dirname(args.output)
+    output_directory = os.path.dirname(args.output) if args.output is not None else os.getcwd()
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
     elif not os.access(output_directory, os.W_OK):
