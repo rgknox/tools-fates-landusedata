@@ -129,6 +129,8 @@ def RegridLoop(ds_to_regrid, regridder):
 
         # Once the first variable has been included, then we can regrid by variable
         else:
-            ds_regrid[var] = regridder(ds_to_regrid[var])
+            # Somehow regridder() can affect its input in-place! We don't want this,
+            # so we pass it in as a copy.
+            ds_regrid[var] = regridder(ds_to_regrid[var].copy())
 
     return(ds_regrid)

@@ -1,7 +1,24 @@
 import argparse
+import os
 
 from landusedata.luh2 import main as luh2main
 from landusedata.landusepft import main as lupftmain
+
+def _shared_arguments(parser):
+    parser.add_argument(
+        'regrid_target_file',
+        help='target surface data file with desired grid resolution',
+    )
+    parser.add_argument(
+        'luh2_static_file',
+        help='luh2 static data file',
+    )
+    parser.add_argument(
+        '--overwrite',
+        action='store_true',
+        help='overwrite existing output file, if it exists',
+    )
+    return parser
 
 def main(argv=None):
 
@@ -23,11 +40,11 @@ def main(argv=None):
     luh2_parser.set_defaults(func=luh2main)
     lupft_parser.set_defaults(func=lupftmain)
 
+    # Shared arguments
+    luh2_parser = _shared_arguments(luh2_parser)
+    lupft_parser = _shared_arguments(lupft_parser)
+
     # LUH2 subparser arguments
-    luh2_parser.add_argument('regrid_target_file',
-                             help='target surface data file with desired grid resolution')
-    luh2_parser.add_argument("luh2_static_file",
-                             help = "luh2 static data file")
     luh2_parser.add_argument('luh2_states_file',
                              help = "full path of luh2 raw states file")
     luh2_parser.add_argument('luh2_transitions_file',
@@ -53,10 +70,6 @@ def main(argv=None):
                              help = "filename of file on intermediate regridding format")
 
     # Landuse x pft subparser arguments
-    lupft_parser.add_argument('regrid_target_file',
-                             help='target surface data file with desired grid resolution')
-    lupft_parser.add_argument('luh2_static_file',
-                             help = "luh2 static data file")
     lupft_parser.add_argument('clm_luhforest_file',
                               help = "CLM5_current_luhforest_deg025.nc")
     lupft_parser.add_argument('clm_luhpasture_file',
@@ -79,12 +92,24 @@ def main(argv=None):
     # Parse the arguments
     args = parser.parse_args(argv)
 
+    # Only overwrite existing output if --overwrite specified
+    args.output = os.path.realpath(args.output)
+    if os.path.exists(args.output) and not args.overwrite:
+        raise FileExistsError(f"Output file exists; specify --overwrite to overwrite: {args.output}")
+
+    # Create output directory, if needed. Otherwise, check write access.
+    output_directory = os.path.dirname(args.output)
+    if not os.path.exists(output_directory):
+        os.makedirs(output_directory)
+    elif not os.access(output_directory, os.W_OK):
+        raise PermissionError("No write permissions in " + output_directory)
+
     # Call the default function for the given subcommand
     args.func(args)
 
     # Return successful completion
     return 0
 
-# Gaurd against import time side effects
+# Guard against import time side effects
 if __name__ == '__main__':
     raise SystemExit(main())
