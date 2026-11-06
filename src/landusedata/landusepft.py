@@ -121,9 +121,8 @@ def main(args):
     # ds_regrid = ds_regrid.rename({'lat':'lsmlat','lon':'lsmlon'})
 
     # Output dataset to netcdf file
-    if args.output == "fates_landuse_pft_map.nc":
+    if args.output is None:
         fname = f"fates_landuse_pft_map_to_{args.regrid_target_file.split('/')[-1].split('.')[0]}_{datetime.now(UTC).strftime('%y%m%d')}.nc"
-        print(fname)
         output_file = os.path.join(os.getcwd(), fname)
     else:
         output_file = os.path.join(os.getcwd(), args.output)

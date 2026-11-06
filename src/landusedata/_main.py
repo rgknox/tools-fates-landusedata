@@ -46,7 +46,7 @@ def main(argv=None):
                              default = None,
                              help = "ending of date range to slice")
     luh2_parser.add_argument("-o","--output",
-                             default = 'LUH2_timeseries.nc',
+                             default = None,
                              help = "output filename")
     luh2_parser.add_argument("-i", "--intermediate_regridding_file",
                              default = None,

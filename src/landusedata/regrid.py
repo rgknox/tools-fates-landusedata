@@ -1,9 +1,9 @@
 import numpy as np
 import xesmf as xe
 import xarray as xr
-
-import sys
-
+# Keep for debugging if needed:
+# import sys
+# sys.exit(4)
 from .utils import ImportRegridTarget
 
 class TwoStepRegridder:
@@ -67,25 +67,11 @@ def make_se_regridder(weight_file, regrid_method):
     if len(out_shape) == 1:
         out_shape = [1, out_shape.item()]
 
-    #print(in_shape, out_shape)
-    #print(weights)
-    #print(len(weights.yc_a.data.reshape(in_shape)[:, 0]))
-    #print(weights.yc_a.data.reshape(in_shape)[:, 0])
-    #print(len((weights.xc_a.data.reshape(in_shape)[0, :])))
-    #print((weights.xc_a.data.reshape(in_shape)[0, :]))
-    #sys.exit(4)
     # Making some bounds inputs:
-    #print(in_shape)
     lat_b_in = np.zeros(in_shape[0]+1)
     lon_b_in = weights.xv_a.data[:in_shape[1]+1, 0]
-    #print(lon_b_in[0:10])
-    #print(weights.yv_a.data.shape)
-    #print(np.arange(in_shape[0]+1)*in_shape[1],)
-    #print(weights.yv_a.data[-5:-1, :])
     lat_b_in[:-1] = weights.yv_a.data[np.arange(in_shape[0])*in_shape[1],0]
     lat_b_in[-1] = weights.yv_a.data[-1,-1]
-    #print(lat_b_in)
-    #sys.exit(4)
 
     dummy_out = xr.Dataset(
         {
