@@ -6,7 +6,7 @@ import xarray as xr
 # Keep for debugging if needed:
 # import sys
 # sys.exit(4)
-from .utils import ImportRegridTarget
+
 
 # This function determines if we are using a SCRIP
 # or a mesh file to create weights
@@ -66,98 +66,70 @@ def _scrip_to_mesh_tempfile(scrip_file):
 
     
 
-    
-class TwoStepRegridder:
-
-    def __init__(self, ds_to_regrid, regridder_steptwo_weights, intermediate_regridding_file, regrid_method="conservative"):
-        
-        self.se_regridder = make_se_regridder(regridder_steptwo_weights, regrid_method=regrid_method)
-        intermediate_ds = ImportRegridTarget(intermediate_regridding_file)
-        self.step_one_regridder = xe.Regridder(ds_to_regrid, intermediate_ds, regrid_method)
-
-    def two_step_regridding(self, ds_to_regrid):
-        ds_intermediate = self.step_one_regridder(ds_to_regrid)
-        ds_se = self.se_regridder(ds_intermediate).squeeze("lat", drop=True)
-        return ds_se.rename({"lon":"lndgrid"}).drop_vars("lndgrid")
-
-
-def RegridConservative(ds_to_regrid, ds_regrid_target, regridder_weights, regrid_reuse, regrid_method="conservative", intermediate_regridding_file=None):
+def RegridConservative(ds_to_regrid, ds_regrid_target, regridder_weights_file, regrid_reuse, \
+                       regrid_method="conservative", se_grid_file=None):
 
     # define the regridder transformation
-    regridder = GenerateRegridder(ds_to_regrid, ds_regrid_target, regridder_weights, regrid_reuse, regrid_method=regrid_method, intermediate_regridding_file=intermediate_regridding_file)
+    regridder = GenerateRegridder(ds_to_regrid, ds_regrid_target, regridder_weights_file, \
+                                  regrid_reuse, regrid_method=regrid_method, \
+                                  se_grid_file=se_grid_file)
 
     # Loop through the variables to regrid
     ds_regrid = RegridLoop(ds_to_regrid, regridder)
 
     return (ds_regrid, regridder)
 
-def GenerateRegridder(ds_to_regrid, ds_regrid_target, regridder_weights_file, regrid_reuse, regrid_method = "conservative", intermediate_regridding_file=None):
+def GenerateRegridder(ds_to_regrid, ds_regrid_target, regridder_weights_file,
+                      regrid_reuse, regrid_method="conservative", se_grid_file=None):
+
+    # This is a little confusing, but some things to help clear it up
+    #
+    # "regridder" is an esmf method that needs to be built, this is the thing
+    # that we use to transfer the actual data arrays from one grid to another
+    #
+    # The mapping that regridder will use, which has weights and stuff to go
+    # from one grid to another, can be saved in a file so that its ready to use
+    # at later points in the call sequence, rebuilding this mapping takes time. we
+    # save that in a netcdf file (yes, we don't save in a data array because
+    # we want to use the esmf libraries, which want an nc file)
+    #
+    # For equal angle grids, creating this mapping and regridder is straight forward
+    # and just needs grid cell centers. However, if its not (like spectral element),
+    # then we need to use a file that defines the grid cell corners too. This
+    # is the mesh or scrip file.
     
     print("\nDefining regridder, method: ", regrid_method)
-    if 'lat' not in ds_regrid_target.dims:
-        two_step_regridder = TwoStepRegridder(ds_to_regrid, regridder_weights_file, intermediate_regridding_file, regrid_method=regrid_method)
-        regridder = two_step_regridder.two_step_regridding #make_se_regridder(regridder_weights_file, regrid_method=regrid_method)
 
-    elif (regrid_reuse):
-        regridder = xe.Regridder(ds_to_regrid, ds_regrid_target,
-                                 regrid_method, weights=regridder_weights_file)
+    if se_grid_file is not None:
+        grid_type = _detect_se_grid_type(se_grid_file)
+        tmp_mesh = None
+        try:
+            mesh_path = se_grid_file if grid_type == 'mesh' \
+                        else _scrip_to_mesh_tempfile(se_grid_file)
+            if grid_type != 'mesh':
+                tmp_mesh = mesh_path
+
+            if regrid_reuse:
+                regridder = xe.Regridder(ds_to_regrid, mesh_path, regrid_method,
+                                         weights=regridder_weights_file)
+            else:
+                regridder = xe.Regridder(ds_to_regrid, mesh_path, regrid_method)
+                regridder.to_netcdf(regridder_weights_file)
+                print("regridder saved to file: ", regridder_weights_file)
+        finally:
+            if tmp_mesh is not None:
+                os.unlink(tmp_mesh)
+
+    elif regrid_reuse:
+        regridder = xe.Regridder(ds_to_regrid, ds_regrid_target, regrid_method,
+                                 weights=regridder_weights_file)
     else:
         regridder = xe.Regridder(ds_to_regrid, ds_regrid_target, regrid_method)
+        regridder.to_netcdf(regridder_weights_file)
+        print("regridder saved to file: ", regridder_weights_file)
 
-        # If we are not reusing the regridder weights file, then save the regridder
-        filename = regridder.to_netcdf(regridder_weights_file)
-        print("regridder saved to file: ", filename)
-
-    return(regridder)
-
-
-def make_se_regridder(weight_file, regrid_method):
-    weights = xr.open_dataset(weight_file)
-    in_shape = weights.src_grid_dims.load().data.tolist()[::-1]
-
-    # Since xESMF expects 2D vars, we'll insert a dummy dimension of size-1
-    if len(in_shape) == 1:
-        in_shape = [1, in_shape.item()]
-
-    # output variable shape
-    out_shape = weights.dst_grid_dims.load().data#.tolist()[::-1]
-    if len(out_shape) == 1:
-        out_shape = [1, out_shape.item()]
-
-    # Making some bounds inputs:
-    lat_b_in = np.zeros(in_shape[0]+1)
-    lon_b_in = weights.xv_a.data[:in_shape[1]+1, 0]
-    lat_b_in[:-1] = weights.yv_a.data[np.arange(in_shape[0])*in_shape[1],0]
-    lat_b_in[-1] = weights.yv_a.data[-1,-1]
-
-    dummy_out = xr.Dataset(
-        {
-            "lat": ("lat", np.empty((out_shape[0],))),
-            "lon": ("lon", np.empty((out_shape[1],))),
-            "lat_b": ("lat_b", np.empty((out_shape[0]+1,))),
-            "lon_b": ("lon_b", np.empty((out_shape[1]+1,)))
-        }
-    )
-    dummy_in= xr.Dataset(
-        {
-            "lat": ("lat", weights.yc_a.data.reshape(in_shape)[:, 0]),
-            "lon": ("lon", weights.xc_a.data.reshape(in_shape)[0, :]),
-            "lat_b": ("lat_b", lat_b_in),
-            "lon_b": ("lon_b", lon_b_in)
-        }
-    )
-
-    regridder = xe.Regridder(
-        dummy_in,
-        dummy_out,
-        weights=weight_file,
-        #method="conservative_normed",
-        method=regrid_method,
-        #method="bilinear",
-        reuse_weights=True,
-        periodic=True,
-    )
     return regridder
+
 
 def RegridLoop(ds_to_regrid, regridder):
 

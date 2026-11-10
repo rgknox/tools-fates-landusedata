@@ -94,11 +94,11 @@ def main(args):
         regridder = GenerateRegridder(
             ds_percent,
             ds_target,
-            args.regridder_weights,
+            regridder_weights_file=args.regridder_weights,
             regrid_reuse=False,
             regrid_method="conservative_normed",
-            intermediate_regridding_file=args.intermediate_regridding_file,
-        )
+            se_grid_file=args.se_grid_file)
+
         ds_regrid = regridder(ds_percent)
 
         # Drop mask to avoid conflicts when merging

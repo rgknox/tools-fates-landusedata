@@ -56,10 +56,9 @@ def main(args):
         regrid_luh2, regridder_luh2 = RegridConservative(
             dataset,
             ds_regrid_target,
-            args.regridder_weights,
-            regrid_reuse,
-            intermediate_regridding_file=args.intermediate_regridding_file,
-        )
+            regridder_weights_file=args.regridder_weights,
+            regrid_reuse=regrid_reuse,
+            se_grid_file=args.se_grid_file)
 
         # Regrid the inverted ice/water fraction data to the target grid
         regrid_land_fraction = regridder_luh2(ds_luh2_static)
