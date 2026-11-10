@@ -71,6 +71,10 @@ def main(args):
     # Create an output dataset to contain individually regridded landuse percent datasets
     ds_output = xr.Dataset()
 
+    # We will resuse the regrid weights file after its
+    # built on the first pass
+    regrid_reuse = False
+    
     # Loop through percentage list and regrid each entry
     for index, data_array in enumerate(percent):
         # Get the name for the new variable
@@ -95,10 +99,12 @@ def main(args):
             ds_percent,
             ds_target,
             regridder_weights_file=args.regridder_weights,
-            regrid_reuse=False,
+            regrid_reuse=regrid_reuse,
             regrid_method="conservative_normed",
             se_grid_file=args.se_grid_file)
 
+        regrid_reuse = True
+        
         ds_regrid = regridder(ds_percent)
 
         # Drop mask to avoid conflicts when merging
