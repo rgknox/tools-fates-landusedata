@@ -1,6 +1,3 @@
-import tempfile
-import os
-import numpy as np
 import xesmf as xe
 import xarray as xr
 # Keep for debugging if needed:
@@ -23,48 +20,26 @@ def _detect_se_grid_type(filepath):
             f"SCRIP (grid_center_lat, grid_corner_lat)."
         )
 
-def _scrip_to_mesh_tempfile(scrip_file):
+def _scrip_to_xesmf_dataset(scrip_file):
     ds = xr.open_dataset(scrip_file)
-    ncells   = ds.dims['grid_size']
-    ncorners = ds.dims['grid_corners']
-
-    # Treat each corner as a unique node — avoids deduplication complexity
-    # Original size is (grid_size, grid_corners=4)
-    # Flattening makes each cell "i" have coordinates:
-    # [i*4+1, i*4+2, i*4+3, i*4+4]
-    node_lons = ds['grid_corner_lon'].values.reshape(-1)
-    node_lats = ds['grid_corner_lat'].values.reshape(-1)
-    nNodes = len(node_lons)
-
-    # 1-indexed connectivity: cell i owns nodes [i*ncorners+1 .. (i+1)*ncorners]
-    conn = (np.arange(nNodes, dtype=np.int32) + 1).reshape(ncells, ncorners)
-
-    mesh_ds = xr.Dataset({
-        'nodeCoords': xr.DataArray(
-            np.stack([node_lons, node_lats], axis=1),
-            dims=['nodeCount', 'coordDim'],
-        ),
-        'elementConn': xr.DataArray(
-            conn,
-            dims=['elementCount', 'maxNodePElement'],
-        ),
-        'numElementConn': xr.DataArray(
-            np.full(ncells, ncorners, dtype=np.int8),
-            dims=['elementCount'],
-        ),
-        'centerCoords': xr.DataArray(
-            np.stack([ds['grid_center_lon'].values,
-                      ds['grid_center_lat'].values], axis=1),
-            dims=['elementCount', 'coordDim'],
-        ),
+    return xr.Dataset({
+        'lat':   xr.DataArray(ds['grid_center_lat'].values, dims=['ncells']),
+        'lon':   xr.DataArray(ds['grid_center_lon'].values, dims=['ncells']),
+        'lat_b': xr.DataArray(ds['grid_corner_lat'].values, dims=['ncells', 'nvertices']),
+        'lon_b': xr.DataArray(ds['grid_corner_lon'].values, dims=['ncells', 'nvertices']),
     })
 
-    with tempfile.NamedTemporaryFile(suffix='.nc', delete=False) as f:
-        tmp_path = f.name
-    mesh_ds.to_netcdf(tmp_path)
-    return tmp_path
-
-    
+def _mesh_to_xesmf_dataset(mesh_file):
+    ds = xr.open_dataset(mesh_file)
+    node_lons = ds['nodeCoords'].values[:, 0]
+    node_lats = ds['nodeCoords'].values[:, 1]
+    conn = ds['elementConn'].values - 1  # 0-indexed
+    return xr.Dataset({
+        'lat':   xr.DataArray(ds['centerCoords'].values[:, 1], dims=['ncells']),
+        'lon':   xr.DataArray(ds['centerCoords'].values[:, 0], dims=['ncells']),
+        'lat_b': xr.DataArray(node_lats[conn], dims=['ncells', 'nvertices']),
+        'lon_b': xr.DataArray(node_lons[conn], dims=['ncells', 'nvertices']),
+    })
 
 def RegridConservative(ds_to_regrid, ds_regrid_target, regridder_weights_file, regrid_reuse, \
                        regrid_method="conservative", se_grid_file=None):
@@ -78,6 +53,8 @@ def RegridConservative(ds_to_regrid, ds_regrid_target, regridder_weights_file, r
     ds_regrid = RegridLoop(ds_to_regrid, regridder)
 
     return (ds_regrid, regridder)
+
+
 
 def GenerateRegridder(ds_to_regrid, ds_regrid_target, regridder_weights_file,
                       regrid_reuse, regrid_method="conservative", se_grid_file=None):
@@ -104,30 +81,25 @@ def GenerateRegridder(ds_to_regrid, ds_regrid_target, regridder_weights_file,
     # that we must have a mesh/script file
     if se_grid_file is None and 'lat' not in ds_regrid_target.dims:
         raise ValueError(
-            "Target grid has no 'lat' dimension — it appears to be a spectral element"
+            "Target grid has no 'lat' dimension — it appears to be a spectral element "
             "or unstructured grid. Provide --se_grid_file with a SCRIP or ESMF mesh "
             "file describing the target grid."
         )
     
     if se_grid_file is not None:
         grid_type = _detect_se_grid_type(se_grid_file)
-        tmp_mesh = None
-        try:
-            mesh_path = se_grid_file if grid_type == 'mesh' \
-                        else _scrip_to_mesh_tempfile(se_grid_file)
-            if grid_type != 'mesh':
-                tmp_mesh = mesh_path
+        if grid_type == 'mesh':
+            ds_se_target = _mesh_to_xesmf_dataset(se_grid_file)
+        else:
+            ds_se_target = _scrip_to_xesmf_dataset(se_grid_file)
 
-            if regrid_reuse:
-                regridder = xe.Regridder(ds_to_regrid, mesh_path, regrid_method,
-                                         weights=regridder_weights_file)
-            else:
-                regridder = xe.Regridder(ds_to_regrid, mesh_path, regrid_method)
-                regridder.to_netcdf(regridder_weights_file)
-                print("regridder saved to file: ", regridder_weights_file)
-        finally:
-            if tmp_mesh is not None:
-                os.unlink(tmp_mesh)
+        if regrid_reuse:
+            regridder = xe.Regridder(ds_to_regrid, ds_se_target, regrid_method,
+                                     weights=regridder_weights_file)
+        else:
+            regridder = xe.Regridder(ds_to_regrid, ds_se_target, regrid_method)
+            regridder.to_netcdf(regridder_weights_file)
+            print("regridder saved to file: ", regridder_weights_file)
 
     elif regrid_reuse:
         regridder = xe.Regridder(ds_to_regrid, ds_regrid_target, regrid_method,
