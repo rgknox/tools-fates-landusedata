@@ -105,6 +105,13 @@ def main(argv=None):
     elif not os.access(output_directory, os.W_OK):
         raise PermissionError("No write permissions in " + output_directory)
 
+    # Print arguments for reproducibility
+    print("Command: " + " ".join(sys.argv))
+    print("Arguments:")
+    for key, value in vars(args).items():
+        if key != 'func':
+            print(f"  {key}: {value}")
+    
     # Call the default function for the given subcommand
     args.func(args)
 

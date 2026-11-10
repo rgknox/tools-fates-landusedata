@@ -1,4 +1,4 @@
-import argparse, os, sys
+import os
 import xarray as xr
 import xesmf as xe
 from datetime import datetime, UTC
@@ -90,7 +90,7 @@ def main(args):
         # Regrid current dataset
         print("Regridding {}".format(varname))
         # regridder = xe.Regridder(ds_percent, ds_target, "conservative_normed")
-        print(args)
+
         regridder = GenerateRegridder(
             ds_percent,
             ds_target,
@@ -107,8 +107,6 @@ def main(args):
             ds_regrid = ds_regrid.drop_vars(["mask"])
 
         # Append the new dataset to the output dataset
-        print(ds_regrid)
-        print(ds_regrid.indexes)
         ds_output = ds_output.merge(ds_regrid)
 
     # Duplicate the 'primary' data array into a 'secondary' data array.  Eventually

@@ -1,5 +1,4 @@
-import argparse, os, sys
-
+import os
 import xarray as xr
 from datetime import datetime, UTC
 
