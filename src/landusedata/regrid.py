@@ -1,3 +1,5 @@
+import tempfile
+import os
 import numpy as np
 import xesmf as xe
 import xarray as xr
@@ -6,6 +8,65 @@ import xarray as xr
 # sys.exit(4)
 from .utils import ImportRegridTarget
 
+# This function determines if we are using a SCRIP
+# or a mesh file to create weights
+def _detect_se_grid_type(filepath):
+    ds = xr.open_dataset(filepath)
+    if 'nodeCoords' in ds and 'elementConn' in ds:
+        return 'mesh'
+    elif 'grid_center_lat' in ds and 'grid_corner_lat' in ds:
+        return 'scrip'
+    else:
+        raise ValueError(
+            f"Unrecognized grid file format: {filepath}. "
+            f"Expected ESMF mesh (nodeCoords, elementConn) or "
+            f"SCRIP (grid_center_lat, grid_corner_lat)."
+        )
+
+def _scrip_to_mesh_tempfile(scrip_file):
+    ds = xr.open_dataset(scrip_file)
+    ncells   = ds.dims['grid_size']
+    ncorners = ds.dims['grid_corners']
+
+    # Treat each corner as a unique node — avoids deduplication complexity
+    # Original size is (grid_size, grid_corners=4)
+    # Flattening makes each cell "i" have coordinates:
+    # [i*4+1, i*4+2, i*4+3, i*4+4]
+    node_lons = ds['grid_corner_lon'].values.reshape(-1)
+    node_lats = ds['grid_corner_lat'].values.reshape(-1)
+    nNodes = len(node_lons)
+
+    # 1-indexed connectivity: cell i owns nodes [i*ncorners+1 .. (i+1)*ncorners]
+    conn = (np.arange(nNodes, dtype=np.int32) + 1).reshape(ncells, ncorners)
+
+    mesh_ds = xr.Dataset({
+        'nodeCoords': xr.DataArray(
+            np.stack([node_lons, node_lats], axis=1),
+            dims=['nodeCount', 'coordDim'],
+        ),
+        'elementConn': xr.DataArray(
+            conn,
+            dims=['elementCount', 'maxNodePElement'],
+        ),
+        'numElementConn': xr.DataArray(
+            np.full(ncells, ncorners, dtype=np.int8),
+            dims=['elementCount'],
+        ),
+        'centerCoords': xr.DataArray(
+            np.stack([ds['grid_center_lon'].values,
+                      ds['grid_center_lat'].values], axis=1),
+            dims=['elementCount', 'coordDim'],
+        ),
+    })
+
+    with tempfile.NamedTemporaryFile(suffix='.nc', delete=False) as f:
+        tmp_path = f.name
+    mesh_ds.to_netcdf(tmp_path)
+    return tmp_path
+
+    
+
+    
 class TwoStepRegridder:
 
     def __init__(self, ds_to_regrid, regridder_steptwo_weights, intermediate_regridding_file, regrid_method="conservative"):
