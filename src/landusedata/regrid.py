@@ -1,5 +1,7 @@
 import xesmf as xe
 import xarray as xr
+import ESMF
+
 # Keep for debugging if needed:
 # import sys
 # sys.exit(4)
@@ -85,22 +87,22 @@ def GenerateRegridder(ds_to_regrid, ds_regrid_target, regridder_weights_file,
             "or unstructured grid. Provide --se_grid_file with a SCRIP or ESMF mesh "
             "file describing the target grid."
         )
-    
+
     if se_grid_file is not None:
         grid_type = _detect_se_grid_type(se_grid_file)
         if grid_type == 'mesh':
-            ds_se_target = _mesh_to_xesmf_dataset(se_grid_file)
+            se_target = ESMF.Mesh(filename=se_grid_file, filetype=ESMF.FileFormat.ESMFMESH)
         else:
-            ds_se_target = _scrip_to_xesmf_dataset(se_grid_file)
+            se_target = ESMF.Mesh(filename=se_grid_file, filetype=ESMF.FileFormat.SCRIP)
 
         if regrid_reuse:
-            regridder = xe.Regridder(ds_to_regrid, ds_se_target, regrid_method,
+            regridder = xe.Regridder(ds_to_regrid, se_target, regrid_method,
                                      weights=regridder_weights_file)
         else:
-            regridder = xe.Regridder(ds_to_regrid, ds_se_target, regrid_method)
+            regridder = xe.Regridder(ds_to_regrid, se_target, regrid_method)
             regridder.to_netcdf(regridder_weights_file)
             print("regridder saved to file: ", regridder_weights_file)
-
+    
     elif regrid_reuse:
         regridder = xe.Regridder(ds_to_regrid, ds_regrid_target, regrid_method,
                                  weights=regridder_weights_file)
