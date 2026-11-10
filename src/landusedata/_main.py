@@ -1,5 +1,6 @@
 import argparse
 import os
+import sys
 
 from landusedata.luh2 import main as luh2main
 from landusedata.landusepft import main as lupftmain
@@ -17,6 +18,11 @@ def _shared_arguments(parser):
         '--overwrite',
         action='store_true',
         help='overwrite existing output file, if it exists',
+    )
+    parser.add_argument(
+        '--se_grid_file',
+        default=None,
+        help='SCRIP or ESMF mesh file describing the SE target grid (required for spectral element grids)',
     )
     return parser
 
@@ -65,9 +71,7 @@ def main(argv=None):
     luh2_parser.add_argument("-o","--output",
                              default = None,
                              help = "output filename")
-    luh2_parser.add_argument("-i", "--intermediate_regridding_file",
-                             default = None,
-                             help = "filename of file on intermediate regridding format")
+
 
     # Landuse x pft subparser arguments
     lupft_parser.add_argument('clm_luhforest_file',
@@ -84,9 +88,6 @@ def main(argv=None):
     lupft_parser.add_argument("-w", "--regridder_weights",
                              default = 'regridder.nc',
                              help = "filename of regridder weights to save")
-    lupft_parser.add_argument("-i", "--intermediate_regridding_file",
-                             default = None,
-                             help = "filename of file on intermediate regridding format")
 
 
     # Parse the arguments
