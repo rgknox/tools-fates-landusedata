@@ -93,7 +93,6 @@ def main(args):
 
         # Regrid current dataset
         print("Regridding {}".format(varname))
-        # regridder = xe.Regridder(ds_percent, ds_target, "conservative_normed")
 
         regridder = GenerateRegridder(
             ds_percent,

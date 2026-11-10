@@ -100,6 +100,15 @@ def GenerateRegridder(ds_to_regrid, ds_regrid_target, regridder_weights_file,
     
     print("\nDefining regridder, method: ", regrid_method)
 
+    # This checks to make sure that if we have a non equal angle grid
+    # that we must have a mesh/script file
+    if se_grid_file is None and 'lat' not in ds_regrid_target.dims:
+        raise ValueError(
+            "Target grid has no 'lat' dimension — it appears to be a spectral element"
+            "or unstructured grid. Provide --se_grid_file with a SCRIP or ESMF mesh "
+            "file describing the target grid."
+        )
+    
     if se_grid_file is not None:
         grid_type = _detect_se_grid_type(se_grid_file)
         tmp_mesh = None
