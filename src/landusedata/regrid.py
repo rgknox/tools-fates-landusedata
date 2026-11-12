@@ -77,7 +77,7 @@ def _build_target_mesh(se_grid_file):
 class BuildRegridder:
 
     def __init__(self, src_grid, dst, weights_file=None, reuse_weights=False,
-                 target_lat=None, target_lon=None, use_src_mask=False):
+                 target_lat=None, target_lon=None, use_src_mask=False, src_mask=None):
         
         self._dst_is_mesh = isinstance(dst, esmf.Mesh)
 
@@ -100,12 +100,18 @@ class BuildRegridder:
             
         self._target_lat = target_lat
         self._target_lon = target_lon
-            
+        self._src_mask = src_mask
+        
     def _apply(self, data_2d):
-        self._src_field.data[...] = data_2d.T  # numpy (lat,lon) → esmf (lon,lat)
+        if self._src_mask is not None:
+            src_data = np.where(self._src_mask == 0, 0.0, data_2d)
+        else:
+            src_data = data_2d
+        self._src_field.data[...] = src_data.T
         self._regrid(self._src_field, self._dst_field)
         return self._dst_field.data.copy()
 
+    
     def _regrid_variable(self, da):
         other_dims = [d for d in da.dims if d not in ('lat', 'lon')]
         da = da.transpose(*other_dims, 'lat', 'lon')
@@ -200,7 +206,8 @@ def GenerateRegridder(ds_to_regrid, ds_regrid_target, regridder_weights_file,
                                reuse_weights=regrid_reuse,
                                target_lat=target_lat,
                                target_lon=target_lon,
-                               use_src_mask=(src_mask is not None))
+                               use_src_mask=(src_mask is not None),
+                               src_mask=src_mask)
 
     if not regrid_reuse:
         print("regridder saved to file: ", regridder_weights_file)
