@@ -98,7 +98,6 @@ def main(args):
             print(f"[DIAG] {varname} at southern Indian Ocean (lat~-50, lon~83):")
             print(f"  mask = {ds_percent['mask'].values[lat_idx, lon_idx]}")
             print(f"  {varname} = {ds_percent[varname].values[lat_idx, lon_idx, :]}")
-            exit(0)
         
         # Regrid current dataset
         print("Regridding {}".format(varname))

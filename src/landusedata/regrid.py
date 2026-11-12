@@ -24,13 +24,6 @@ def _detect_se_grid_type(filepath):
 
 def _build_latlon_grid(ds,src_mask=None):
 
-
-    if src_mask is not None:
-        grid.add_item(esmf.GridItem.MASK, staggerloc=esmf.StaggerLoc.CENTER)
-        grid.get_item(esmf.GridItem.MASK, staggerloc=esmf.StaggerLoc.CENTER)[...] = \
-            src_mask.astype(np.int32).T
-
-    
     # build an esmf "grid" fiel type from lat/lon data
     # since these grids are equal angle, we can do simple math to retrieve the corners
     lat = ds['lat'].values
@@ -63,7 +56,7 @@ def _build_latlon_grid(ds,src_mask=None):
 
 
     if src_mask is not None:
-	grid.add_item(esmf.GridItem.MASK, staggerloc=esmf.StaggerLoc.CENTER)
+        grid.add_item(esmf.GridItem.MASK, staggerloc=esmf.StaggerLoc.CENTER)
         grid.get_item(esmf.GridItem.MASK, staggerloc=esmf.StaggerLoc.CENTER)[...] = \
             src_mask.astype(np.int32).T
     
@@ -207,7 +200,7 @@ def GenerateRegridder(ds_to_regrid, ds_regrid_target, regridder_weights_file,
                                reuse_weights=regrid_reuse,
                                target_lat=target_lat,
                                target_lon=target_lon,
-                               use_src_mask=(src_mask is no None))
+                               use_src_mask=(src_mask is not None))
 
     if not regrid_reuse:
         print("regridder saved to file: ", regridder_weights_file)
