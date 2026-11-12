@@ -98,10 +98,15 @@ def main(args):
             print(f"[DIAG] {varname} at southern Indian Ocean (lat~-50, lon~83):")
             print(f"  mask = {ds_percent['mask'].values[lat_idx, lon_idx]}")
             print(f"  {varname} = {ds_percent[varname].values[lat_idx, lon_idx, :]}")
-        
+
+            print("mask_icwtr lat:", mask_icwtr.lat.values[0], "to", mask_icwtr.lat.values[-1])
+            print("ds_percent lat:", ds_percent.lat.values[0], "to", ds_percent.lat.values[-1])
+            
         # Regrid current dataset
         print("Regridding {}".format(varname))
 
+        
+        
         regridder = GenerateRegridder(
             ds_percent,
             ds_target,

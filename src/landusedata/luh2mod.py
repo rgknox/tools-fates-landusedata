@@ -1,7 +1,7 @@
 import re, sys
 import numpy as np
 import xarray as xr
-import xesmf as xe
+
 
 
 # Import luh2 or surface data sets

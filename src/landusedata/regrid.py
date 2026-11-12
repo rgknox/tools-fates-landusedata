@@ -77,7 +77,8 @@ def _build_target_mesh(se_grid_file):
 class BuildRegridder:
 
     def __init__(self, src_grid, dst, weights_file=None, reuse_weights=False,
-                 target_lat=None, target_lon=None, use_src_mask=False):
+                 target_lat=None, target_lon=None, mesh_lat=None, mesh_lon=None,
+                 use_src_mask=False, src_mask=None):
         
         self._dst_is_mesh = isinstance(dst, esmf.Mesh)
 
@@ -97,10 +98,13 @@ class BuildRegridder:
                 unmapped_action=esmf.UnmappedAction.IGNORE,
                 filename=weights_file ,
                 src_mask_values=np.array([0], dtype=np.int32) if use_src_mask else None )
-            
+
+        self._src_mask = src_mask
         self._target_lat = target_lat
         self._target_lon = target_lon
-            
+        self._mesh_lat = mesh_lat
+        self._mesh_lon = mesh_lon
+        
     def _apply(self, data_2d):
         self._src_field.data[...] = data_2d.T  # numpy (lat,lon) → esmf (lon,lat)
         self._regrid(self._src_field, self._dst_field)
@@ -114,11 +118,13 @@ class BuildRegridder:
         extra_dim_names = list(da.dims[:-2])
         spatial_dims = ['ncells'] if self._dst_is_mesh else ['lat', 'lon']
 
-        if not self._dst_is_mesh and self._target_lat is not None:
+        if self._dst_is_mesh and self._mesh_lat is not None:
+            coords = {'lat': ('ncells', self._mesh_lat), 'lon': ('ncells', self._mesh_lon)}
+        elif not self._dst_is_mesh and self._target_lat is not None:
             coords = {'lat': self._target_lat, 'lon': self._target_lon}
         else:
             coords = {}
-
+            
         if extra_dims:
             out = np.empty(extra_dims + self._dst_field.data.shape)
             for idx in np.ndindex(extra_dims):
@@ -182,25 +188,33 @@ def GenerateRegridder(ds_to_regrid, ds_regrid_target, regridder_weights_file,
             "file describing the target grid."
         )
 
-
     # construct an ESMF "grid file" from source coordinates
     src_grid = _build_latlon_grid(ds_to_regrid,src_mask=src_mask)
 
     # construct an ESMF "mesh" or "grid" from the target coordinates
     if se_grid_file is not None:
         target_meshorgrid = _build_target_mesh(se_grid_file)
+        mesh_lon = target_meshorgrid.get_coords(0, meshloc=esmf.MeshLoc.ELEMENT)
+        mesh_lat = target_meshorgrid.get_coords(1, meshloc=esmf.MeshLoc.ELEMENT)
+        target_lat = None
+        target_lon = None
+        
     else:
         target_meshorgrid = _build_latlon_grid(ds_regrid_target)
-
-    target_lat = None if se_grid_file is not None else ds_regrid_target['lat'].values
-    target_lon = None if se_grid_file is not None else ds_regrid_target['lon'].values
-
+        mesh_lat = None
+        mesh_lon = None
+        target_lat = ds_regrid_target['lat'].values
+        target_lon = ds_regrid_target['lon'].values
+        
     regridder = BuildRegridder(src_grid, target_meshorgrid,
                                weights_file=regridder_weights_file,
                                reuse_weights=regrid_reuse,
                                target_lat=target_lat,
                                target_lon=target_lon,
-                               use_src_mask=(src_mask is not None))
+                               mesh_lat=mesh_lat,
+                               mesh_lon=mesh_lon,
+                               use_src_mask=(src_mask is not None),
+                               src_mask=src_mask)
 
     if not regrid_reuse:
         print("regridder saved to file: ", regridder_weights_file)
