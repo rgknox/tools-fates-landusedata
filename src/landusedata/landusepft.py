@@ -105,8 +105,6 @@ def main(args):
         # Regrid current dataset
         print("Regridding {}".format(varname))
 
-        
-        
         regridder = GenerateRegridder(
             ds_percent,
             ds_target,
@@ -114,7 +112,7 @@ def main(args):
             regrid_reuse=regrid_reuse,
             regrid_method="conservative_normed",
             se_grid_file=args.se_grid_file,
-            src_mask=mask_icwtr.values )
+            src_mask=mask_icwtr.sortby('lat').values)
 
         regrid_reuse = True
         

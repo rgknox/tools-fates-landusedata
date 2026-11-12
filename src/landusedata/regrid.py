@@ -94,7 +94,7 @@ class BuildRegridder:
             self._regrid = esmf.Regrid(
                 self._src_field, self._dst_field,
                 regrid_method=esmf.RegridMethod.CONSERVE,
-                norm_type=esmf.NormType.DSTAREA,
+                norm_type=esmf.NormType.FRACAREA,
                 unmapped_action=esmf.UnmappedAction.IGNORE,
                 filename=weights_file ,
                 src_mask_values=np.array([0], dtype=np.int32) if use_src_mask else None )
@@ -116,6 +116,8 @@ class BuildRegridder:
 
     
     def _regrid_variable(self, da):
+        if 'lat' in da.dims:
+            da = da.sortby('lat')
         other_dims = [d for d in da.dims if d not in ('lat', 'lon')]
         da = da.transpose(*other_dims, 'lat', 'lon')
         data = da.values
@@ -192,6 +194,10 @@ def GenerateRegridder(ds_to_regrid, ds_regrid_target, regridder_weights_file,
             "or unstructured grid. Provide --se_grid_file with a SCRIP or ESMF mesh "
             "file describing the target grid."
         )
+
+
+
+    ds_to_regrid = ds_to_regrid.sortby('lat')
 
     # construct an ESMF "grid file" from source coordinates
     src_grid = _build_latlon_grid(ds_to_regrid,src_mask=src_mask)
