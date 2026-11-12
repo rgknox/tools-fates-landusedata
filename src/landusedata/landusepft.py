@@ -1,6 +1,5 @@
 import os
 import xarray as xr
-import xesmf as xe
 from datetime import datetime, UTC
 
 from landusedata.landusepftmod import (

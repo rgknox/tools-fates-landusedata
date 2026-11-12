@@ -1,6 +1,6 @@
-import xesmf as xe
+import numpy as np
 import xarray as xr
-import ESMF
+import esmpy as esmf
 
 # Keep for debugging if needed:
 # import sys
@@ -22,27 +22,102 @@ def _detect_se_grid_type(filepath):
             f"SCRIP (grid_center_lat, grid_corner_lat)."
         )
 
-def _scrip_to_xesmf_dataset(scrip_file):
-    ds = xr.open_dataset(scrip_file)
-    return xr.Dataset({
-        'lat':   xr.DataArray(ds['grid_center_lat'].values, dims=['ncells']),
-        'lon':   xr.DataArray(ds['grid_center_lon'].values, dims=['ncells']),
-        'lat_b': xr.DataArray(ds['grid_corner_lat'].values, dims=['ncells', 'nvertices']),
-        'lon_b': xr.DataArray(ds['grid_corner_lon'].values, dims=['ncells', 'nvertices']),
-    })
+def _build_latlon_grid(ds):
 
-def _mesh_to_xesmf_dataset(mesh_file):
-    ds = xr.open_dataset(mesh_file)
-    node_lons = ds['nodeCoords'].values[:, 0]
-    node_lats = ds['nodeCoords'].values[:, 1]
-    conn = ds['elementConn'].values - 1  # 0-indexed
-    return xr.Dataset({
-        'lat':   xr.DataArray(ds['centerCoords'].values[:, 1], dims=['ncells']),
-        'lon':   xr.DataArray(ds['centerCoords'].values[:, 0], dims=['ncells']),
-        'lat_b': xr.DataArray(node_lats[conn], dims=['ncells', 'nvertices']),
-        'lon_b': xr.DataArray(node_lons[conn], dims=['ncells', 'nvertices']),
-    })
+    # build an esmf "grid" fiel type from lat/lon data
+    # since these grids are equal angle, we can do simple math to retrieve the corners
+    lat = ds['lat'].values
+    lon = ds['lon'].values
+    nlat, nlon = len(lat), len(lon)
 
+    # Compute cell borders from centers (equal-angle assumption)
+    # we don't need 2d fields for this. 
+    dlat = lat[1] - lat[0]
+    dlon = lon[1] - lon[0]
+    lat_b = np.concatenate([[lat[0] - dlat/2], (lat[:-1] + lat[1:])/2, [lat[-1] + dlat/2]])
+    lon_b = np.concatenate([[lon[0] - dlon/2], (lon[:-1] + lon[1:])/2, [lon[-1] + dlon/2]])
+
+    grid = esmf.Grid(
+        np.array([nlon, nlat], dtype=np.int32),
+        num_peri_dims=1,
+        coord_sys=esmf.CoordSys.SPH_DEG,
+        staggerloc=[esmf.StaggerLoc.CENTER, esmf.StaggerLoc.CORNER]
+    )
+
+    grid.add_coords(staggerloc=esmf.StaggerLoc.CENTER)
+    grid.add_coords(staggerloc=esmf.StaggerLoc.CORNER)
+    
+    # ESMF is lon-major so arrays are (nlon, nlat) — transpose from numpy convention
+    lon_2d, lat_2d = np.meshgrid(lon, lat)
+    grid.get_coords(0,staggerloc=esmf.StaggerLoc.CENTER)[...] = lon_2d.T
+    grid.get_coords(1,staggerloc=esmf.StaggerLoc.CENTER)[...] = lat_2d.T
+
+    lon_b_2d, lat_b_2d = np.meshgrid(lon_b, lat_b)
+    grid.get_coords(0, staggerloc=esmf.StaggerLoc.CORNER)[...] = lon_b_2d.T
+    grid.get_coords(1, staggerloc=esmf.StaggerLoc.CORNER)[...] = lat_b_2d.T
+
+    return grid
+
+
+def _build_target_mesh(se_grid_file):
+    grid_type = _detect_se_grid_type(se_grid_file)
+    if grid_type == 'scrip':
+        return esmf.Mesh(filename=se_grid_file,
+                         filetype=esmf.FileFormat.SCRIP,
+                         convert_to_dual=False)
+    else:
+        return esmf.Mesh(filename=se_grid_file,
+                         filetype=esmf.FileFormat.ESMFMESH,
+                         convert_to_dual=False)
+
+class BuildRegridder:
+
+    def __init__(self, src_grid, dst, weights_file=None, reuse_weights=False):
+        self._dst_is_mesh = isinstance(dst, esmf.Mesh)
+
+        self._src_field = esmf.Field(src_grid, staggerloc=esmf.StaggerLoc.CENTER)
+        if self._dst_is_mesh:
+            self._dst_field = esmf.Field(dst, meshloc=esmf.MeshLoc.ELEMENT)
+        else:
+            self._dst_field = esmf.Field(dst, staggerloc=esmf.StaggerLoc.CENTER)
+
+        if reuse_weights and weights_file is not None:
+            self._regrid = esmf.RegridFromFile(self._src_field, self._dst_field, weights_file)
+        else:
+            self._regrid = esmf.Regrid(
+                self._src_field, self._dst_field,
+                regrid_method=esmf.RegridMethod.CONSERVE,
+                norm_type=esmf.NormType.DSTAREA,
+                unmapped_action=esmf.UnmappedAction.IGNORE,
+                filename=weights_file
+            )
+
+    def _apply(self, data_2d):
+        self._src_field.data[...] = data_2d.T  # numpy (lat,lon) → esmf (lon,lat)
+        self._regrid(self._src_field, self._dst_field)
+        return self._dst_field.data.copy()
+
+    def _regrid_variable(self, da):
+        data = da.values
+        extra_dims = data.shape[:-2]
+        extra_dim_names = list(da.dims[:-2])
+        spatial_dims = ['ncells'] if self._dst_is_mesh else ['lat', 'lon']
+        if extra_dims:
+            out = np.empty(extra_dims + self._dst_field.data.shape)
+            for idx in np.ndindex(extra_dims):
+                out[idx] = self._apply(data[idx])
+            return xr.DataArray(out, dims=extra_dim_names + spatial_dims)
+        else:
+            return xr.DataArray(self._apply(data), dims=spatial_dims)
+
+    def __call__(self, ds):
+        if isinstance(ds, xr.DataArray):
+            return self._regrid_variable(ds)
+        result = {var: self._regrid_variable(ds[var]) for var in ds.data_vars}
+        return xr.Dataset(result)
+
+    
+    
 def RegridConservative(ds_to_regrid, ds_regrid_target, regridder_weights_file, regrid_reuse, \
                        regrid_method="conservative", se_grid_file=None):
 
@@ -88,30 +163,25 @@ def GenerateRegridder(ds_to_regrid, ds_regrid_target, regridder_weights_file,
             "file describing the target grid."
         )
 
-    if se_grid_file is not None:
-        grid_type = _detect_se_grid_type(se_grid_file)
-        if grid_type == 'mesh':
-            se_target = ESMF.Mesh(filename=se_grid_file, filetype=ESMF.FileFormat.ESMFMESH)
-        else:
-            se_target = ESMF.Mesh(filename=se_grid_file, filetype=ESMF.FileFormat.SCRIP)
 
-        if regrid_reuse:
-            regridder = xe.Regridder(ds_to_regrid, se_target, regrid_method,
-                                     weights=regridder_weights_file)
-        else:
-            regridder = xe.Regridder(ds_to_regrid, se_target, regrid_method)
-            regridder.to_netcdf(regridder_weights_file)
-            print("regridder saved to file: ", regridder_weights_file)
-    
-    elif regrid_reuse:
-        regridder = xe.Regridder(ds_to_regrid, ds_regrid_target, regrid_method,
-                                 weights=regridder_weights_file)
+    # construct an ESMF "grid file" from source coordinates
+    src_grid = _build_latlon_grid(ds_to_regrid)
+
+    # construct an ESMF "mesh" or "grid" from the target coordinates
+    if se_grid_file is not None:
+        target_meshorgrid = _build_target_mesh(se_grid_file)
     else:
-        regridder = xe.Regridder(ds_to_regrid, ds_regrid_target, regrid_method)
-        regridder.to_netcdf(regridder_weights_file)
+        target_meshorgrid = _build_latlon_grid(ds_regrid_target)
+
+    regridder = BuildRegridder(src_grid, target_meshorgrid, \
+                               weights_file=regridder_weights_file, \
+                               reuse_weights=regrid_reuse)
+
+    if not regrid_reuse:
         print("regridder saved to file: ", regridder_weights_file)
 
     return regridder
+
 
 
 def RegridLoop(ds_to_regrid, regridder):
@@ -120,7 +190,6 @@ def RegridLoop(ds_to_regrid, regridder):
     print("\nRegridding")
 
     # Loop through the variables one at a time to conserve memory
-    ds_varnames = list(ds_to_regrid.variables.keys())
     varlen = len(ds_to_regrid.variables)
     first_var = True
     for i, var in enumerate(ds_to_regrid):
