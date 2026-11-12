@@ -91,17 +91,6 @@ def main(args):
             )
             ds_percent["mask"] = ds_percent.mask * mask_zeropercent
 
-        # ADD DIAGNOSTIC HERE:
-        if varname=='frac_primr':
-            lat_idx = np.argmin(np.abs(ds_percent.lat.values - (-50)))
-            lon_idx = np.argmin(np.abs(ds_percent.lon.values - 83))
-            print(f"[DIAG] {varname} at southern Indian Ocean (lat~-50, lon~83):")
-            print(f"  mask = {ds_percent['mask'].values[lat_idx, lon_idx]}")
-            print(f"  {varname} = {ds_percent[varname].values[lat_idx, lon_idx, :]}")
-
-            print("mask_icwtr lat:", mask_icwtr.lat.values[0], "to", mask_icwtr.lat.values[-1])
-            print("ds_percent lat:", ds_percent.lat.values[0], "to", ds_percent.lat.values[-1])
-            
         # Regrid current dataset
         print("Regridding {}".format(varname))
 
@@ -124,7 +113,7 @@ def main(args):
             ds_regrid = ds_regrid.drop_vars(["mask"])
 
         # Append the new dataset to the output dataset
-        ds_output = ds_output.merge(ds_regrid)
+        ds_output = ds_output.merge(ds_regrid,compat='override')
 
     # Duplicate the 'primary' data array into a 'secondary' data array.  Eventually
     # this will contain different data from a future CLM landuse x pft update

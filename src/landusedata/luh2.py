@@ -3,7 +3,7 @@ import xarray as xr
 from datetime import datetime, UTC
 
 from landusedata.luh2mod import ImportLUH2TimeSeries, CorrectStateSum
-from landusedata.regrid import RegridConservative
+from landusedata.regrid import GenerateRegridder, RegridLoop
 from landusedata.utils import (
     ImportLUH2StaticFile,
     ImportRegridTarget,
@@ -51,14 +51,18 @@ def main(args):
     # At the beginning of the loop, there is no regrid weights file to reuse
     regrid_reuse = False
     for dataset in ds_luh2:
+
         # Regrid the luh2 data to the target grid
-        # TO DO: provide a check for the save argument based on the input arguments
-        regrid_luh2, regridder_luh2 = RegridConservative(
+
+        regridder_luh2 = GenerateRegridder(
             dataset,
             ds_regrid_target,
             regridder_weights_file=args.regridder_weights,
             regrid_reuse=regrid_reuse,
-            se_grid_file=args.se_grid_file)
+            se_grid_file=args.se_grid_file,
+            src_mask=mask_icwtr.sortby('lat').values)
+        
+        regrid_luh2 = RegridLoop(dataset, regridder_luh2)
 
         # Regrid the inverted ice/water fraction data to the target grid
         regrid_land_fraction = regridder_luh2(ds_luh2_static)

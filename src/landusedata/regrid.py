@@ -147,22 +147,6 @@ class BuildRegridder:
         result = {var: self._regrid_variable(ds[var]) for var in ds.data_vars}
         return xr.Dataset(result)
 
-    
-    
-def RegridConservative(ds_to_regrid, ds_regrid_target, regridder_weights_file, regrid_reuse, \
-                       regrid_method="conservative", se_grid_file=None):
-
-    # define the regridder transformation
-    regridder = GenerateRegridder(ds_to_regrid, ds_regrid_target, regridder_weights_file, \
-                                  regrid_reuse, regrid_method=regrid_method, \
-                                  se_grid_file=se_grid_file)
-
-    # Loop through the variables to regrid
-    ds_regrid = RegridLoop(ds_to_regrid, regridder)
-
-    return (ds_regrid, regridder)
-
-
 
 def GenerateRegridder(ds_to_regrid, ds_regrid_target, regridder_weights_file,
                       regrid_reuse, regrid_method="conservative", se_grid_file=None,

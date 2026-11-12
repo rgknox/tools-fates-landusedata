@@ -15,7 +15,7 @@ classifiers = [
     "Topic :: Scientific/Engineering"
 ]
 dependencies = [
-    "xesmf",    # p2c: -c conda-forge
+    "esmpy",
     "netcdf4",  # p2c: -c conda-forge
 ]
 
