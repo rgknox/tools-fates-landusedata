@@ -106,10 +106,15 @@ class BuildRegridder:
         self._mesh_lon = mesh_lon
         
     def _apply(self, data_2d):
-        self._src_field.data[...] = data_2d.T  # numpy (lat,lon) → esmf (lon,lat)
+        if self._src_mask is not None:
+            src_data = np.where(self._src_mask == 0, 0.0, data_2d)
+        else:
+            src_data = data_2d
+        self._src_field.data[...] = src_data.T
         self._regrid(self._src_field, self._dst_field)
         return self._dst_field.data.copy()
 
+    
     def _regrid_variable(self, da):
         other_dims = [d for d in da.dims if d not in ('lat', 'lon')]
         da = da.transpose(*other_dims, 'lat', 'lon')
