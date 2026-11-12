@@ -1,6 +1,7 @@
 import os
 import xarray as xr
 from datetime import datetime, UTC
+import numpy as np
 
 from landusedata.landusepftmod import (
     ImportLandusePFTFile,
@@ -90,6 +91,15 @@ def main(args):
             )
             ds_percent["mask"] = ds_percent.mask * mask_zeropercent
 
+        # ADD DIAGNOSTIC HERE:
+        if varname=='frac_primr':
+            lat_idx = np.argmin(np.abs(ds_percent.lat.values - (-50)))
+            lon_idx = np.argmin(np.abs(ds_percent.lon.values - 83))
+            print(f"[DIAG] {varname} at southern Indian Ocean (lat~-50, lon~83):")
+            print(f"  mask = {ds_percent['mask'].values[lat_idx, lon_idx]}")
+            print(f"  {varname} = {ds_percent[varname].values[lat_idx, lon_idx, :]}")
+            exit(0)
+        
         # Regrid current dataset
         print("Regridding {}".format(varname))
 
@@ -99,7 +109,8 @@ def main(args):
             regridder_weights_file=args.regridder_weights,
             regrid_reuse=regrid_reuse,
             regrid_method="conservative_normed",
-            se_grid_file=args.se_grid_file)
+            se_grid_file=args.se_grid_file,
+            src_mask=mask_icwtr.values )
 
         regrid_reuse = True
         

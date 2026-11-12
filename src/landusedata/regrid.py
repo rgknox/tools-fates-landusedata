@@ -22,8 +22,15 @@ def _detect_se_grid_type(filepath):
             f"SCRIP (grid_center_lat, grid_corner_lat)."
         )
 
-def _build_latlon_grid(ds):
+def _build_latlon_grid(ds,src_mask=None):
 
+
+    if src_mask is not None:
+        grid.add_item(esmf.GridItem.MASK, staggerloc=esmf.StaggerLoc.CENTER)
+        grid.get_item(esmf.GridItem.MASK, staggerloc=esmf.StaggerLoc.CENTER)[...] = \
+            src_mask.astype(np.int32).T
+
+    
     # build an esmf "grid" fiel type from lat/lon data
     # since these grids are equal angle, we can do simple math to retrieve the corners
     lat = ds['lat'].values
@@ -40,9 +47,7 @@ def _build_latlon_grid(ds):
     grid = esmf.Grid(
         np.array([nlon, nlat], dtype=np.int32),
         num_peri_dims=1,
-        coord_sys=esmf.CoordSys.SPH_DEG,
-        staggerloc=[esmf.StaggerLoc.CENTER, esmf.StaggerLoc.CORNER]
-    )
+        coord_sys=esmf.CoordSys.SPH_DEG )
 
     grid.add_coords(staggerloc=esmf.StaggerLoc.CENTER)
     grid.add_coords(staggerloc=esmf.StaggerLoc.CORNER)
@@ -52,10 +57,16 @@ def _build_latlon_grid(ds):
     grid.get_coords(0,staggerloc=esmf.StaggerLoc.CENTER)[...] = lon_2d.T
     grid.get_coords(1,staggerloc=esmf.StaggerLoc.CENTER)[...] = lat_2d.T
 
-    lon_b_2d, lat_b_2d = np.meshgrid(lon_b, lat_b)
+    lon_b_2d, lat_b_2d = np.meshgrid(lon_b[:-1], lat_b)
     grid.get_coords(0, staggerloc=esmf.StaggerLoc.CORNER)[...] = lon_b_2d.T
     grid.get_coords(1, staggerloc=esmf.StaggerLoc.CORNER)[...] = lat_b_2d.T
 
+
+    if src_mask is not None:
+	grid.add_item(esmf.GridItem.MASK, staggerloc=esmf.StaggerLoc.CENTER)
+        grid.get_item(esmf.GridItem.MASK, staggerloc=esmf.StaggerLoc.CENTER)[...] = \
+            src_mask.astype(np.int32).T
+    
     return grid
 
 
@@ -73,7 +84,7 @@ def _build_target_mesh(se_grid_file):
 class BuildRegridder:
 
     def __init__(self, src_grid, dst, weights_file=None, reuse_weights=False,
-                 target_lat=None, target_lon=None):
+                 target_lat=None, target_lon=None, use_src_mask=False):
         
         self._dst_is_mesh = isinstance(dst, esmf.Mesh)
 
@@ -91,7 +102,8 @@ class BuildRegridder:
                 regrid_method=esmf.RegridMethod.CONSERVE,
                 norm_type=esmf.NormType.DSTAREA,
                 unmapped_action=esmf.UnmappedAction.IGNORE,
-                filename=weights_file )
+                filename=weights_file ,
+                src_mask_values=np.array([0], dtype=np.int32) if use_src_mask else None )
             
         self._target_lat = target_lat
         self._target_lon = target_lon
@@ -102,6 +114,8 @@ class BuildRegridder:
         return self._dst_field.data.copy()
 
     def _regrid_variable(self, da):
+        other_dims = [d for d in da.dims if d not in ('lat', 'lon')]
+        da = da.transpose(*other_dims, 'lat', 'lon')
         data = da.values
         extra_dims = data.shape[:-2]
         extra_dim_names = list(da.dims[:-2])
@@ -145,7 +159,8 @@ def RegridConservative(ds_to_regrid, ds_regrid_target, regridder_weights_file, r
 
 
 def GenerateRegridder(ds_to_regrid, ds_regrid_target, regridder_weights_file,
-                      regrid_reuse, regrid_method="conservative", se_grid_file=None):
+                      regrid_reuse, regrid_method="conservative", se_grid_file=None,
+                      src_mask=None):
 
     # This is a little confusing, but some things to help clear it up
     #
@@ -176,7 +191,7 @@ def GenerateRegridder(ds_to_regrid, ds_regrid_target, regridder_weights_file,
 
 
     # construct an ESMF "grid file" from source coordinates
-    src_grid = _build_latlon_grid(ds_to_regrid)
+    src_grid = _build_latlon_grid(ds_to_regrid,src_mask=src_mask)
 
     # construct an ESMF "mesh" or "grid" from the target coordinates
     if se_grid_file is not None:
@@ -191,7 +206,8 @@ def GenerateRegridder(ds_to_regrid, ds_regrid_target, regridder_weights_file,
                                weights_file=regridder_weights_file,
                                reuse_weights=regrid_reuse,
                                target_lat=target_lat,
-                               target_lon=target_lon)
+                               target_lon=target_lon,
+                               use_src_mask=(src_mask is no None))
 
     if not regrid_reuse:
         print("regridder saved to file: ", regridder_weights_file)
