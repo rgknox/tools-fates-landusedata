@@ -72,7 +72,9 @@ def _build_target_mesh(se_grid_file):
 
 class BuildRegridder:
 
-    def __init__(self, src_grid, dst, weights_file=None, reuse_weights=False):
+    def __init__(self, src_grid, dst, weights_file=None, reuse_weights=False,
+                 target_lat=None, target_lon=None):
+        
         self._dst_is_mesh = isinstance(dst, esmf.Mesh)
 
         self._src_field = esmf.Field(src_grid, staggerloc=esmf.StaggerLoc.CENTER)
@@ -89,9 +91,11 @@ class BuildRegridder:
                 regrid_method=esmf.RegridMethod.CONSERVE,
                 norm_type=esmf.NormType.DSTAREA,
                 unmapped_action=esmf.UnmappedAction.IGNORE,
-                filename=weights_file
-            )
-
+                filename=weights_file )
+            
+        self._target_lat = target_lat
+        self._target_lon = target_lon
+            
     def _apply(self, data_2d):
         self._src_field.data[...] = data_2d.T  # numpy (lat,lon) → esmf (lon,lat)
         self._regrid(self._src_field, self._dst_field)
@@ -102,13 +106,20 @@ class BuildRegridder:
         extra_dims = data.shape[:-2]
         extra_dim_names = list(da.dims[:-2])
         spatial_dims = ['ncells'] if self._dst_is_mesh else ['lat', 'lon']
+
+        if not self._dst_is_mesh and self._target_lat is not None:
+            coords = {'lat': self._target_lat, 'lon': self._target_lon}
+        else:
+            coords = {}
+
         if extra_dims:
             out = np.empty(extra_dims + self._dst_field.data.shape)
             for idx in np.ndindex(extra_dims):
                 out[idx] = self._apply(data[idx])
-            return xr.DataArray(out, dims=extra_dim_names + spatial_dims)
+            return xr.DataArray(out, dims=extra_dim_names + spatial_dims, coords=coords)
         else:
-            return xr.DataArray(self._apply(data), dims=spatial_dims)
+            return xr.DataArray(self._apply(data), dims=spatial_dims, coords=coords)
+
 
     def __call__(self, ds):
         if isinstance(ds, xr.DataArray):
@@ -173,9 +184,14 @@ def GenerateRegridder(ds_to_regrid, ds_regrid_target, regridder_weights_file,
     else:
         target_meshorgrid = _build_latlon_grid(ds_regrid_target)
 
-    regridder = BuildRegridder(src_grid, target_meshorgrid, \
-                               weights_file=regridder_weights_file, \
-                               reuse_weights=regrid_reuse)
+    target_lat = None if se_grid_file is not None else ds_regrid_target['lat'].values
+    target_lon = None if se_grid_file is not None else ds_regrid_target['lon'].values
+
+    regridder = BuildRegridder(src_grid, target_meshorgrid,
+                               weights_file=regridder_weights_file,
+                               reuse_weights=regrid_reuse,
+                               target_lat=target_lat,
+                               target_lon=target_lon)
 
     if not regrid_reuse:
         print("regridder saved to file: ", regridder_weights_file)
